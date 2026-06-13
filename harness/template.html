@@ -1,0 +1,1289 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @font-face { font-family:'Pretendard Variable'; font-weight:100 900; font-style:normal; font-display:swap; src:url('./PretendardVariable.woff2') format('woff2'); }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#000; overflow:hidden; }
+    [data-composition-id] { position:relative; width:1080px; height:1920px; overflow:hidden; background:#0a0a0a; font-family:'Pretendard Variable',sans-serif; }
+    .cut { position:absolute; top:0; left:0; width:100%; height:100%; overflow:hidden; }
+    .scene { position:absolute; top:0; left:0; width:100%; height:100%; }
+    .cut video, .cut img { display:block; width:100%; height:100%; object-fit:cover; will-change:transform; }
+    video.cut { position:absolute; top:0; left:0; display:block; width:100%; height:100%; object-fit:cover; will-change:transform; overflow:hidden; }
+    .cut-overlay { position:absolute; top:0; left:0; width:100%; height:100%; overflow:hidden; pointer-events:none; }
+    .warm video, .warm img { filter:brightness(1.03) saturate(1.10) sepia(0.04); }
+    video.cut.warm { filter:brightness(1.03) saturate(1.10) sepia(0.04); }
+    .dim { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+    .dim-bottom { background:linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.18) 70%, rgba(0,0,0,0.40) 100%); }
+    .dim-center { background:radial-gradient(ellipse at center, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.04) 55%, rgba(0,0,0,0.25) 100%); }
+    .dim-full { background:rgba(0,0,0,0.18); }
+    .dim-full-dark { background:rgba(0,0,0,0.32); }
+    .vignette { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; background:radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.22) 100%); pointer-events:none; }
+    .text-overlay { position:absolute; top:0; left:0; width:100%; height:100%; }
+    .ta { position:absolute; top:50%; left:0; width:100%; z-index:2; display:flex; justify-content:center; align-items:center; text-align:center; padding:0 60px; flex-direction:column; gap:16px; pointer-events:none; transform:translateY(-50%); }
+    .cap { color:#fff; line-height:1.35; max-width:920px; will-change:transform,opacity; }
+    .cap-lg { font-size:72px; font-weight:700; text-shadow:0 3px 20px rgba(0,0,0,0.85),0 0 50px rgba(0,0,0,0.5),0 5px 4px rgba(0,0,0,0.6); }
+    .cap-xl { font-size:84px; font-weight:800; text-shadow:0 4px 24px rgba(0,0,0,0.9),0 0 60px rgba(0,0,0,0.5),0 6px 5px rgba(0,0,0,0.7); letter-spacing:-0.02em; }
+    .cap-md { font-size:64px; font-weight:600; text-shadow:0 3px 16px rgba(0,0,0,0.8),0 0 40px rgba(0,0,0,0.4); }
+    .cap-sm { font-size:56px; font-weight:500; text-shadow:0 2px 14px rgba(0,0,0,0.7),0 0 35px rgba(0,0,0,0.35); color:rgba(255,255,255,0.92); }
+    .cap-price { font-size:100px; font-weight:800; letter-spacing:-0.03em; text-shadow:0 4px 30px rgba(0,0,0,0.9),0 0 80px rgba(255,255,255,0.15),0 6px 6px rgba(0,0,0,0.7); }
+    .cta-logo { display:block; margin:0 auto 16px; height:auto; filter:drop-shadow(0 2px 12px rgba(0,0,0,0.6)) drop-shadow(0 0 20px rgba(255,255,255,0.15)); will-change:transform,opacity; }
+    .em { font-weight:800; text-shadow:0 0 25px rgba(255,255,255,0.4),0 3px 20px rgba(0,0,0,0.85); }
+    .em-glow { text-shadow:0 0 35px rgba(255,255,255,0.6),0 0 70px rgba(255,255,255,0.2),0 3px 20px rgba(0,0,0,0.85); }
+    .w { display:inline-block; will-change:transform,opacity; }
+    .flash-frame { position:absolute; top:0; left:0; width:100%; height:100%; background:#fff; z-index:30; will-change:opacity; pointer-events:none; }
+    .progress-bar { position:absolute; bottom:0; left:0; height:3px; background:linear-gradient(90deg,rgba(255,255,255,0.6),rgba(255,255,255,0.9)); z-index:25; will-change:width; }
+    .blinds-overlay { position:absolute; top:0; left:0; width:100%; height:100%; z-index:35; pointer-events:none; display:flex; flex-direction:row; }
+    .blind-strip { flex:1; background:#0a0a0a; will-change:transform; }
+
+    .mg-layer { position:absolute; top:0; left:0; width:100%; height:100%; z-index:4; pointer-events:none; overflow:hidden; }
+    .mg-rgb-r, .mg-rgb-b { position:absolute; top:0; left:0; width:100%; height:100%; mix-blend-mode:screen; opacity:0; pointer-events:none; }
+    .mg-rgb-r { background:rgba(255,0,0,0.15); }
+    .mg-rgb-b { background:rgba(0,80,255,0.15); }
+    .mg-hline { position:absolute; left:-100%; width:300%; height:2px; background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.5) 30%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 70%,transparent 100%); opacity:0; will-change:transform,opacity; }
+    .mg-vline { position:absolute; top:-100%; width:2px; height:300%; background:linear-gradient(180deg,transparent 0%,rgba(255,255,255,0.5) 30%,rgba(255,255,255,0.8) 50%,rgba(255,255,255,0.5) 70%,transparent 100%); opacity:0; will-change:transform,opacity; }
+    .mg-corner { position:absolute; width:30px; height:30px; opacity:0; }
+    .mg-corner-tl { border-top:3px solid rgba(255,255,255,0.7); border-left:3px solid rgba(255,255,255,0.7); }
+    .mg-corner-tr { border-top:3px solid rgba(255,255,255,0.7); border-right:3px solid rgba(255,255,255,0.7); }
+    .mg-corner-bl { border-bottom:3px solid rgba(255,255,255,0.7); border-left:3px solid rgba(255,255,255,0.7); }
+    .mg-corner-br { border-bottom:3px solid rgba(255,255,255,0.7); border-right:3px solid rgba(255,255,255,0.7); }
+    .mg-crosshair { position:absolute; width:60px; height:60px; opacity:0; }
+    .mg-crosshair::before, .mg-crosshair::after { content:''; position:absolute; background:rgba(255,255,255,0.6); }
+    .mg-crosshair::before { top:50%; left:0; width:100%; height:2px; margin-top:-1px; }
+    .mg-crosshair::after { left:50%; top:0; height:100%; width:2px; margin-left:-1px; }
+    .mg-bracket { position:absolute; width:40px; height:80px; border:3px solid rgba(255,255,255,0.6); opacity:0; will-change:transform,opacity; }
+    .mg-bracket-l { border-right:none; border-radius:6px 0 0 6px; }
+    .mg-bracket-r { border-left:none; border-radius:0 6px 6px 0; }
+    .mg-letterbox { position:absolute; left:0; width:100%; height:0; background:#0a0a0a; z-index:6; will-change:height; }
+    .mg-letterbox-top { top:0; }
+    .mg-letterbox-bottom { bottom:0; }
+    .mg-glitch { position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; will-change:transform,opacity; overflow:hidden; z-index:5; pointer-events:none; }
+    .mg-glitch-inner { width:100%; height:100%; background:rgba(255,255,255,0.04); }
+    .mg-scan-beam { position:absolute; left:0; width:100%; height:4px; background:linear-gradient(180deg, transparent, rgba(255,255,255,0.6), rgba(255,255,255,0.8), rgba(255,255,255,0.6), transparent); opacity:0; z-index:5; will-change:transform,opacity; filter:blur(1px); }
+
+    /* ═══ VFX: Film Grain ═══ */
+    .film-grain { position:absolute; top:0; left:0; width:100%; height:100%; z-index:40; pointer-events:none; opacity:0; overflow:hidden; }
+    .film-grain-inner { position:absolute; top:-50%; left:-50%; width:200%; height:200%; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' seed='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E"); }
+    @keyframes grain-shift { 0%{transform:translate(0,0)} 25%{transform:translate(-4%,-3%)} 50%{transform:translate(3%,5%)} 75%{transform:translate(-2%,4%)} 100%{transform:translate(0,0)} }
+
+    /* ═══ VFX: Knockout Text ═══ */
+    .cap-knockout { background-size:cover; background-position:center; -webkit-background-clip:text; background-clip:text; color:transparent!important; -webkit-text-fill-color:transparent; text-shadow:none!important; font-weight:900; }
+
+    /* ═══ VFX: SVG Marks ═══ */
+    .svg-mark { position:absolute; z-index:50; pointer-events:none; will-change:transform,opacity; }
+    .svg-mark svg { width:100%; height:100%; }
+    .svg-mark .x-stroke { stroke:#ff3333; stroke-width:14; stroke-linecap:round; fill:none; filter:drop-shadow(0 0 12px rgba(255,0,0,0.6)); }
+    .svg-mark .check-stroke { stroke:#33dd66; stroke-width:14; stroke-linecap:round; fill:none; filter:drop-shadow(0 0 12px rgba(51,221,102,0.6)); }
+    .svg-mark-bg { fill:rgba(0,0,0,0.7); rx:50%; }
+
+    /* ═══ VFX: Confetti Particles ═══ */
+    .confetti-container { position:absolute; top:0; left:0; width:100%; height:100%; z-index:45; pointer-events:none; overflow:hidden; }
+    .confetti-p { position:absolute; width:12px; height:12px; border-radius:2px; will-change:transform,opacity; opacity:0; }
+    .confetti-p.circle { border-radius:50%; }
+
+    /* ═══ VFX: Price Counter ═══ */
+    .price-counter { font-variant-numeric:tabular-nums; display:inline-block; }
+
+    /* ═══ VFX: Chromatic Aberration Text ═══ */
+    .cap-chromatic { position:relative; }
+    .cap-chromatic-r, .cap-chromatic-b { position:absolute; top:0; left:0; width:100%; pointer-events:none; }
+    .cap-chromatic-r { color:rgba(255,0,0,0.5); mix-blend-mode:screen; }
+    .cap-chromatic-b { color:rgba(0,80,255,0.5); mix-blend-mode:screen; }
+
+    /* ═══ VFX: PIP Overlay ═══ */
+    .pip-frame { position:absolute; z-index:22; pointer-events:none; overflow:hidden; border-radius:16px; box-shadow:0 8px 40px rgba(0,0,0,0.55),0 2px 8px rgba(0,0,0,0.3); will-change:transform,opacity; background:#fff; padding:6px; }
+    .pip-frame img { width:100%; height:100%; object-fit:contain; border-radius:10px; }
+    .pip-frame.no-bg { background:none; padding:0; box-shadow:0 8px 40px rgba(0,0,0,0.55); border-radius:12px; }
+    .pip-frame.no-bg img { border-radius:12px; }
+
+    /* ═══ VFX: Badge Overlay ═══ */
+    .vfx-badge { position:absolute; z-index:55; pointer-events:none; will-change:transform,opacity; padding:12px 28px; border-radius:8px; font-family:'Pretendard Variable',sans-serif; font-weight:800; font-size:36px; letter-spacing:-0.02em; line-height:1; white-space:nowrap; }
+    .vfx-badge.style-hot { background:linear-gradient(135deg,#ff4444,#ff6b35); color:#fff; box-shadow:0 4px 20px rgba(255,68,68,0.5),0 0 40px rgba(255,68,68,0.2); }
+    .vfx-badge.style-cool { background:linear-gradient(135deg,#00b4d8,#0077b6); color:#fff; box-shadow:0 4px 20px rgba(0,180,216,0.5),0 0 40px rgba(0,180,216,0.2); }
+    .vfx-badge.style-best { background:linear-gradient(135deg,#ffd700,#ff8c00); color:#1a1a1a; box-shadow:0 4px 20px rgba(255,215,0,0.5),0 0 40px rgba(255,215,0,0.2); }
+    .vfx-badge.style-dark { background:rgba(0,0,0,0.85); color:#fff; border:2px solid rgba(255,255,255,0.3); box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+    .vfx-badge.style-white { background:rgba(255,255,255,0.95); color:#1a1a1a; box-shadow:0 4px 24px rgba(0,0,0,0.3); }
+
+    /* ═══ VFX: Animated Underline ═══ */
+    .vfx-underline { position:absolute; z-index:52; pointer-events:none; overflow:visible; }
+    .vfx-underline path { fill:none; stroke-linecap:round; stroke-linejoin:round; }
+    .vfx-underline .ul-main { stroke:#ff4444; stroke-width:6; filter:drop-shadow(0 2px 6px rgba(255,68,68,0.4)); }
+    .vfx-underline .ul-glow { stroke:rgba(255,68,68,0.3); stroke-width:14; }
+
+    /* ═══ VFX: Text Highlight Box ═══ */
+    .vfx-highlight-box { position:absolute; z-index:1; pointer-events:none; will-change:transform; border-radius:4px; }
+    .vfx-highlight-box.hl-yellow { background:rgba(255,215,0,0.35); }
+    .vfx-highlight-box.hl-red { background:rgba(255,60,60,0.30); }
+    .vfx-highlight-box.hl-blue { background:rgba(0,120,255,0.25); }
+    .vfx-highlight-box.hl-green { background:rgba(0,200,100,0.25); }
+
+    /* ═══ VFX: Streak Line ═══ */
+    .vfx-streak { position:absolute; z-index:48; pointer-events:none; will-change:transform,opacity; overflow:hidden; }
+    .vfx-streak-inner { width:200%; height:100%; }
+    .vfx-streak.streak-white .vfx-streak-inner { background:linear-gradient(90deg,transparent,rgba(255,255,255,0.8),rgba(255,255,255,0.95),rgba(255,255,255,0.8),transparent); }
+    .vfx-streak.streak-red .vfx-streak-inner { background:linear-gradient(90deg,transparent,rgba(255,60,60,0.7),rgba(255,60,60,0.9),rgba(255,60,60,0.7),transparent); }
+    .vfx-streak.streak-gold .vfx-streak-inner { background:linear-gradient(90deg,transparent,rgba(255,200,0,0.7),rgba(255,220,50,0.9),rgba(255,200,0,0.7),transparent); }
+    .vfx-streak.streak-blue .vfx-streak-inner { background:linear-gradient(90deg,transparent,rgba(0,140,255,0.7),rgba(0,160,255,0.9),rgba(0,140,255,0.7),transparent); }
+
+    /* ═══ VFX: Pulse Ring ═══ */
+    .vfx-pulse-ring { position:absolute; z-index:46; pointer-events:none; border-radius:50%; will-change:transform,opacity; border:3px solid rgba(255,255,255,0.8); box-shadow:0 0 20px rgba(255,255,255,0.3),inset 0 0 20px rgba(255,255,255,0.1); }
+    .vfx-pulse-ring.ring-red { border-color:rgba(255,60,60,0.8); box-shadow:0 0 20px rgba(255,60,60,0.3),inset 0 0 20px rgba(255,60,60,0.1); }
+    .vfx-pulse-ring.ring-gold { border-color:rgba(255,200,0,0.8); box-shadow:0 0 20px rgba(255,200,0,0.3),inset 0 0 20px rgba(255,200,0,0.1); }
+    .vfx-pulse-ring.ring-blue { border-color:rgba(0,140,255,0.8); box-shadow:0 0 20px rgba(0,140,255,0.3),inset 0 0 20px rgba(0,140,255,0.1); }
+
+    /* ═══ VFX: Review Ticker ═══ */
+    .vfx-review-ticker { position:absolute; z-index:54; pointer-events:none; will-change:transform,opacity; overflow:hidden; border-radius:12px; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); padding:12px 16px; }
+    .vfx-review-item { white-space:nowrap; font-family:'Pretendard Variable',sans-serif; font-weight:600; font-size:20px; color:#fff; line-height:1.8; opacity:0.95; }
+    .vfx-review-item .review-stars { color:#ffd700; font-size:18px; margin-right:8px; }
+    .vfx-review-item .review-text { color:rgba(255,255,255,0.95); }
+  </style>
+</head>
+<body>
+
+<div id="comp" data-composition-id="__ID__" data-start="0" data-duration="__DUR__" data-width="1080" data-height="1920">
+  <div id="flash1" class="flash-frame" style="opacity:0"></div>
+  <div id="progress" class="progress-bar" style="width:0%"></div>
+  <div id="blinds" class="blinds-overlay" style="display:none">
+    <div class="blind-strip"></div><div class="blind-strip"></div><div class="blind-strip"></div>
+    <div class="blind-strip"></div><div class="blind-strip"></div><div class="blind-strip"></div>
+    <div class="blind-strip"></div><div class="blind-strip"></div>
+  </div>
+  <div class="mg-layer">
+    <div id="mg-rgb-r" class="mg-rgb-r"></div>
+    <div id="mg-rgb-b" class="mg-rgb-b"></div>
+    <div id="mg-hline1" class="mg-hline" style="top:35%"></div>
+    <div id="mg-hline2" class="mg-hline" style="top:65%"></div>
+    <div id="mg-vline1" class="mg-vline" style="left:25%"></div>
+    <div id="mg-vline2" class="mg-vline" style="left:75%"></div>
+    <div id="mg-bracket-l" class="mg-bracket mg-bracket-l"></div>
+    <div id="mg-bracket-r" class="mg-bracket mg-bracket-r"></div>
+    <div id="mg-cross" class="mg-crosshair" style="top:30%;right:15%"></div>
+    <div id="mg-corner-tl" class="mg-corner mg-corner-tl" style="top:20%;left:8%"></div>
+    <div id="mg-corner-tr" class="mg-corner mg-corner-tr" style="top:20%;right:8%"></div>
+    <div id="mg-corner-bl" class="mg-corner mg-corner-bl" style="bottom:20%;left:8%"></div>
+    <div id="mg-corner-br" class="mg-corner mg-corner-br" style="bottom:20%;right:8%"></div>
+    <div id="mg-lb-top" class="mg-letterbox mg-letterbox-top"></div>
+    <div id="mg-lb-bot" class="mg-letterbox mg-letterbox-bottom"></div>
+    <div id="mg-glitch1" class="mg-glitch" style="top:15%;height:8%"><div class="mg-glitch-inner"></div></div>
+    <div id="mg-glitch2" class="mg-glitch" style="top:45%;height:6%"><div class="mg-glitch-inner"></div></div>
+    <div id="mg-glitch3" class="mg-glitch" style="top:72%;height:10%"><div class="mg-glitch-inner"></div></div>
+    <div id="mg-scan" class="mg-scan-beam"></div>
+  </div>
+
+  <!-- VFX layers -->
+  <div id="film-grain" class="film-grain"><div class="film-grain-inner"></div></div>
+  <div id="confetti-container" class="confetti-container"></div>
+
+  <!-- DYNAMIC: cuts + text overlays + audio injected here -->
+  <div id="dynamic-cuts"></div>
+  <div id="dynamic-text"></div>
+  <div id="dynamic-audio"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/SplitText.min.js"></script>
+<script>
+(function() {
+  "use strict";
+
+  /* ═══════════════════════════════════════════
+     CONFIG — injected by build_reel.py or fetched
+     ═══════════════════════════════════════════ */
+  var CONFIG = window.__REEL_CONFIG__ || null;
+  var SCRIPT = window.__REEL_SCRIPT__ || null;
+
+  function init() {
+    if (!CONFIG || !SCRIPT) { console.error("CONFIG/SCRIPT not loaded"); return; }
+
+    var meta = CONFIG.meta;
+    var comp = document.getElementById("comp");
+    comp.dataset.compositionId = "reel-" + meta.version;
+    comp.dataset.duration = meta.duration;
+
+    var staticBuilt = !document.getElementById("dynamic-cuts");
+    if (!staticBuilt) {
+      buildCuts(CONFIG);
+      buildTextOverlays(SCRIPT);
+      buildAudio(CONFIG);
+    }
+    buildTimeline(CONFIG, SCRIPT);
+  }
+
+  /* ═══════════════════════════════════════════
+     1. BUILD CUTS — media elements from config
+     ═══════════════════════════════════════════ */
+  function buildCuts(cfg) {
+    var container = document.getElementById("dynamic-cuts");
+    var sources = cfg.sources || {};
+    var html = "";
+
+    cfg.beats.forEach(function(beat, bi) {
+      var colorCls = beat.color === "warm" ? " warm" : "";
+      var dimCls = "dim-" + (beat.dim || "center");
+      var cuts = beat.cuts || [];
+      var beatEnd = beat.start + beat.duration;
+      var track = 20 + bi;
+
+      cuts.forEach(function(cut, ci) {
+        var src = resolveSrc(cut, sources);
+        var lead = (ci === 0 && bi > 0) ? 0.20 : 0;
+        var clipStart = Math.max(0, cut.start - lead);
+        var clipDur;
+        if (ci < cuts.length - 1) {
+          clipDur = cuts[ci + 1].start - cut.start + lead - 0.01;
+        } else {
+          clipDur = beatEnd - cut.start + lead + 0.50;
+        }
+        clipStart = +clipStart.toFixed(2);
+        clipDur = +clipDur.toFixed(2);
+
+        var objPos = cut.face_hide ? 'center 55%' : (cut.object_position || '');
+        var posStyle = objPos ? ' style="object-position:' + objPos + '"' : '';
+        if (cut.type === "video") {
+          html += '<video id="' + cut.id + '" class="clip cut' + colorCls + '" ' +
+                  'data-start="' + clipStart + '" data-duration="' + clipDur + '" ' +
+                  'data-track-index="' + track + '"' +
+                  (cut.mediaStart ? ' data-media-start="' + cut.mediaStart + '"' : '') +
+                  ' src="' + src + '" muted playsinline preload="auto"' + posStyle + '></video>\n';
+          var overlayTrack = 40 + bi;
+          html += '<div id="' + cut.id + '-o" class="clip cut-overlay" ' +
+                  'data-start="' + clipStart + '" data-duration="' + clipDur + '" ' +
+                  'data-track-index="' + overlayTrack + '">' +
+                  '<div class="dim ' + dimCls + '"></div><div class="vignette"></div>' +
+                  '</div>\n';
+        } else {
+          var mediaEl = '<img id="' + cut.id + '-m" src="' + src + '"' + posStyle + '>';
+          html += '<div id="' + cut.id + '" class="clip cut' + colorCls + '" ' +
+                  'data-start="' + clipStart + '" data-duration="' + clipDur + '" ' +
+                  'data-track-index="' + track + '">' +
+                  mediaEl +
+                  '<div class="dim ' + dimCls + '"></div><div class="vignette"></div>' +
+                  '</div>\n';
+        }
+      });
+    });
+
+    container.innerHTML = html;
+  }
+
+  function resolveSrc(cut, sources) {
+    var pool = sources[cut.type] || sources.video || sources.image || {};
+    var entry = pool[cut.source];
+    if (entry && entry.path) return entry.path;
+    if (entry) return entry;
+    return "media/" + cut.source;
+  }
+
+  /* ═══════════════════════════════════════════
+     2. BUILD TEXT OVERLAYS — from script.json
+     ═══════════════════════════════════════════ */
+  function buildTextOverlays(scr) {
+    var container = document.getElementById("dynamic-text");
+    var html = "";
+    var sizeMap = { lg:"cap-lg", xl:"cap-xl", md:"cap-md", sm:"cap-sm", price:"cap-price" };
+
+    scr.beats.forEach(function(beat, idx) {
+      var subs = beat.subtitle || [];
+      if (!subs.length) return;
+      var trackIdx = idx % 2 === 0 ? 5 : 6;
+      var dur = (beat.end - beat.start + 0.30).toFixed(2);
+
+      html += '    <div id="' + beat.id + '-text" class="clip text-overlay" ' +
+              'data-start="' + beat.start + '" data-duration="' + dur + '" data-track-index="' + trackIdx + '">\n';
+
+      if (subs.length === 1) {
+        html += '      <div class="ta">' + buildSubDiv(subs[0], sizeMap, false) + '</div>\n';
+      } else {
+        html += '      <div class="ta">\n';
+        subs.forEach(function(sub, si) {
+          html += '        ' + buildSubDiv(sub, sizeMap, si > 0) + '\n';
+        });
+        html += '      </div>\n';
+      }
+      html += '    </div>\n';
+    });
+
+    container.innerHTML = html;
+  }
+
+  function buildSubDiv(sub, sizeMap, delayed) {
+    var cls = sizeMap[sub.size] || "cap-md";
+    var emphasis = sub.emphasis || [];
+    var words = sub.words || sub.text.replace(/\n/g, " ").split(" ");
+    var text = sub.text || "";
+    var lines = text.split("\n");
+
+    var spans = [];
+    var wi = 0;
+    lines.forEach(function(line, li) {
+      line.split(" ").forEach(function(w) {
+        if (!w) return;
+        var word = wi < words.length ? words[wi] : w;
+        var emCls = emphasis.indexOf(word) >= 0 ? " em" : "";
+        spans.push('<span class="w' + emCls + '">' + word + '</span>');
+        wi++;
+      });
+      if (li < lines.length - 1) spans.push("<br>");
+    });
+
+    var opStyle = delayed ? ' style="opacity:0"' : '';
+    return '<div id="' + sub.id + '" class="cap ' + cls + '"' + opStyle + '>' +
+           spans.join(" ").replace(/ <br> /g, "<br>") + '</div>';
+  }
+
+  /* ═══════════════════════════════════════════
+     3. BUILD AUDIO
+     ═══════════════════════════════════════════ */
+  function buildAudio(cfg) {
+    var container = document.getElementById("dynamic-audio");
+    var a = cfg.audio || {};
+    var dur = cfg.meta.duration;
+    var html = '';
+    if (a.tts) {
+      html += '<audio id="tts" class="clip" data-start="0" data-duration="' + dur +
+              '" data-track-index="1" src="' + a.tts + '" data-volume="' + (a.tts_volume || 1) + '"></audio>\n';
+    }
+    if (a.sfx) {
+      html += '<audio id="sfx" class="clip" data-start="0" data-duration="' + dur +
+              '" data-track-index="3" src="' + a.sfx + '" data-volume="' + (a.sfx_volume || 0.5) + '"></audio>\n';
+    }
+    container.innerHTML = html;
+  }
+
+  /* ═══════════════════════════════════════════
+     4. MOGRAPH FUNCTIONS
+     ═══════════════════════════════════════════ */
+  var tl, C = "#comp";
+
+  function flash(t) { tl.set("#flash1",{opacity:0.85},t); tl.to("#flash1",{opacity:0,duration:0.12,ease:"power3.out"},t+0.02); }
+  function cutFlash(t) { tl.set("#flash1",{opacity:0.7,overwrite:"auto"},t); tl.to("#flash1",{opacity:0,duration:0.08,ease:"power4.out",overwrite:"auto"},t+0.01); }
+  function beatPunch(t) {
+    tl.to(C, {scale:1.06, duration:0.05, ease:"power4.out", transformOrigin:"50% 50%"}, t);
+    tl.to(C, {scale:1, duration:0.20, ease:"elastic.out(1.2,0.5)"}, t+0.05);
+  }
+  function rgbGlitch(t) {
+    tl.to("#mg-rgb-r", {opacity:1, x:30, duration:0.03, ease:"none"}, t);
+    tl.to("#mg-rgb-b", {opacity:1, x:-30, duration:0.03, ease:"none"}, t);
+    tl.set("#mg-rgb-r", {x:-20}, t+0.03); tl.set("#mg-rgb-b", {x:20}, t+0.03);
+    tl.to("#mg-rgb-r", {opacity:0, x:0, duration:0.06, ease:"power2.out"}, t+0.06);
+    tl.to("#mg-rgb-b", {opacity:0, x:0, duration:0.06, ease:"power2.out"}, t+0.06);
+  }
+  function speedLines(t) {
+    tl.fromTo("#mg-hline1", {x:"-60%", opacity:0.9}, {x:"60%", opacity:0, duration:0.25, ease:"power2.in"}, t);
+    tl.fromTo("#mg-hline2", {x:"60%", opacity:0.9}, {x:"-60%", opacity:0, duration:0.25, ease:"power2.in"}, t+0.02);
+  }
+  function scanLines(t) {
+    tl.fromTo("#mg-vline1", {y:"-60%", opacity:0.7}, {y:"60%", opacity:0, duration:0.22, ease:"power2.in"}, t);
+    tl.fromTo("#mg-vline2", {y:"60%", opacity:0.7}, {y:"-60%", opacity:0, duration:0.22, ease:"power2.in"}, t+0.03);
+  }
+  function cornerFrame(t, dur) {
+    ["#mg-corner-tl","#mg-corner-tr","#mg-corner-bl","#mg-corner-br"].forEach(function(c, i) {
+      tl.fromTo(c, {opacity:0, scale:1.8}, {opacity:0.8, scale:1, duration:0.18, ease:"power3.out"}, t+i*0.03);
+      tl.to(c, {opacity:0, duration:0.12}, t+dur);
+    });
+  }
+  function crosshair(t, dur) {
+    tl.fromTo("#mg-cross", {opacity:0, scale:2.5, rotation:90}, {opacity:0.7, scale:1, rotation:0, duration:0.22, ease:"power3.out"}, t);
+    tl.to("#mg-cross", {opacity:0, scale:0.5, duration:0.12}, t+dur);
+  }
+  function bracketPair(t, dur) {
+    tl.set("#mg-bracket-l", {left:"15%", top:"46%"}); tl.set("#mg-bracket-r", {right:"15%", top:"46%"});
+    tl.fromTo("#mg-bracket-l", {opacity:0, x:-50}, {opacity:0.8, x:0, duration:0.18, ease:"power3.out"}, t);
+    tl.fromTo("#mg-bracket-r", {opacity:0, x:50}, {opacity:0.8, x:0, duration:0.18, ease:"power3.out"}, t);
+    tl.to("#mg-bracket-l", {opacity:0, x:-25, duration:0.12}, t+dur);
+    tl.to("#mg-bracket-r", {opacity:0, x:25, duration:0.12}, t+dur);
+  }
+  function shakeJitter(t, intensity) {
+    var d = intensity || 12;
+    tl.to(C, {x:d, y:-d*0.6, duration:0.03, ease:"none"}, t);
+    tl.to(C, {x:-d*0.8, y:d*0.4, duration:0.03, ease:"none"}, t+0.03);
+    tl.to(C, {x:d*0.5, y:d*0.7, duration:0.03, ease:"none"}, t+0.06);
+    tl.to(C, {x:0, y:0, duration:0.06, ease:"power2.out"}, t+0.09);
+  }
+  function glitchSlice(t) {
+    ["#mg-glitch1","#mg-glitch2","#mg-glitch3"].forEach(function(g, i) {
+      var dirs = [40, -35, 25];
+      tl.to(g, {opacity:1, x:dirs[i], duration:0.03, ease:"none"}, t);
+      tl.set(g, {x:-dirs[i]*0.5}, t+0.04);
+      tl.to(g, {opacity:0, x:0, duration:0.06, ease:"power2.out"}, t+0.07);
+    });
+  }
+  function letterboxSlam(t, dur) {
+    tl.to("#mg-lb-top", {height:100, duration:0.15, ease:"power3.out"}, t);
+    tl.to("#mg-lb-bot", {height:100, duration:0.15, ease:"power3.out"}, t);
+    tl.to("#mg-lb-top", {height:0, duration:0.20, ease:"power2.inOut"}, t+dur-0.20);
+    tl.to("#mg-lb-bot", {height:0, duration:0.20, ease:"power2.inOut"}, t+dur-0.20);
+  }
+  function scanBeam(t) { tl.fromTo("#mg-scan", {top:"-2%", opacity:0.8}, {top:"102%", opacity:0, duration:0.4, ease:"power1.in"}, t); }
+  function rotationKick(t) {
+    tl.to(C, {rotation:2.5, duration:0.06, ease:"power3.out", transformOrigin:"50% 50%"}, t);
+    tl.to(C, {rotation:0, duration:0.25, ease:"elastic.out(1,0.4)"}, t+0.06);
+  }
+  function strobeFlash(t, count) {
+    for (var i = 0; i < (count||3); i++) {
+      tl.set("#flash1", {opacity: 0.6 - i*0.15}, t + i*0.04);
+      tl.to("#flash1", {opacity:0, duration:0.03, ease:"none"}, t + i*0.04 + 0.02);
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     4b. VFX EFFECTS LIBRARY
+     ═══════════════════════════════════════════ */
+
+  function _getCutImgSrc(beat) {
+    if (!beat || !beat.cuts || !beat.cuts[0]) return "";
+    var c = beat.cuts[0];
+    var img = document.getElementById(c.id + "-m");
+    if (img) return img.getAttribute("src") || "";
+    var vid = document.getElementById(c.id);
+    if (vid) return vid.getAttribute("src") || "";
+    return "";
+  }
+
+  // --- VFX 1: SplitText 글자별 등장 ---
+  function splitCharsElastic(sel, t, dur) {
+    var el = document.querySelector(sel);
+    if (!el || typeof SplitText === "undefined") { springWords(sel, t, dur); return; }
+    var split = new SplitText(el, { type: "chars,words" });
+    var chars = split.chars;
+    var stag = Math.min(0.06, (dur || 0.5) / chars.length);
+    chars.forEach(function(ch, i) {
+      tl.set(ch, {opacity:0, y:60, scale:0, rotation:-15+(i%5)*8}, t + i*stag);
+      tl.to(ch, {opacity:1, y:0, scale:1, rotation:0, duration:0.30, ease:"elastic.out(1.2,0.4)"}, t + i*stag);
+    });
+  }
+  function splitCharsWave(sel, t, dur) {
+    var el = document.querySelector(sel);
+    if (!el || typeof SplitText === "undefined") { riseWords(sel, t, dur); return; }
+    var split = new SplitText(el, { type: "chars,words" });
+    var chars = split.chars;
+    var stag = Math.min(0.05, (dur || 0.6) / chars.length);
+    chars.forEach(function(ch, i) {
+      tl.set(ch, {opacity:0, y:80, scale:0.3}, t + i*stag);
+      tl.to(ch, {opacity:1, y:0, scale:1, duration:0.35, ease:"back.out(2.5)"}, t + i*stag);
+    });
+  }
+  function splitCharsScatter(sel, t, dur) {
+    var el = document.querySelector(sel);
+    if (!el || typeof SplitText === "undefined") { blurResolve(sel, t, dur); return; }
+    var split = new SplitText(el, { type: "chars,words" });
+    var chars = split.chars;
+    var stag = Math.min(0.04, (dur || 0.5) / chars.length);
+    var seed = 42;
+    chars.forEach(function(ch, i) {
+      seed = (seed * 16807 + 7) % 2147483647;
+      var angle = (seed % 360) * Math.PI / 180;
+      var dist = 80 + (seed % 120);
+      var dx = Math.cos(angle) * dist;
+      var dy = Math.sin(angle) * dist;
+      tl.set(ch, {opacity:0, x:dx, y:dy, scale:0, rotation:(seed%60)-30}, t + i*stag);
+      tl.to(ch, {opacity:1, x:0, y:0, scale:1, rotation:0, duration:0.35, ease:"power3.out"}, t + i*stag);
+    });
+  }
+
+  // --- VFX 2: SVG X마크 / 체크마크 드로잉 ---
+  var _svgMarkId = 0;
+  function createSvgMark(type, parentSel, t, opts) {
+    opts = opts || {};
+    var parent = document.querySelector(parentSel);
+    if (!parent) parent = document.getElementById("comp");
+    var size = opts.size || 180;
+    var cx = opts.cx || "50%";
+    var cy = opts.cy || "45%";
+    var id = "svg-mark-" + (++_svgMarkId);
+
+    var container = document.createElement("div");
+    container.id = id;
+    container.className = "svg-mark";
+    container.style.cssText = "width:"+size+"px;height:"+size+"px;top:"+cy+";left:"+cx+";transform:translate(-50%,-50%)";
+
+    var pathD, cls;
+    if (type === "x") {
+      pathD = "M22,22 L78,78 M78,22 L22,78";
+      cls = "x-stroke";
+    } else {
+      pathD = "M20,55 L42,75 L80,28";
+      cls = "check-stroke";
+    }
+
+    container.innerHTML =
+      '<svg viewBox="0 0 100 100">' +
+      '<circle class="svg-mark-bg" cx="50" cy="50" r="46"/>' +
+      '<path class="'+cls+'" d="'+pathD+'"/>' +
+      '</svg>';
+    parent.style.position = "relative";
+    parent.appendChild(container);
+
+    var path = container.querySelector("path");
+    var totalLen = 170;
+    path.style.strokeDasharray = totalLen;
+    path.style.strokeDashoffset = totalLen;
+
+    tl.set("#"+id, {scale:0.3, opacity:0}, t);
+    tl.to("#"+id, {scale:1, opacity:1, duration:0.18, ease:"back.out(2)"}, t);
+    tl.to(path, {strokeDashoffset:0, duration:0.30, ease:"power2.out"}, t+0.05);
+
+    var holdDur = opts.hold || 1.5;
+    tl.to("#"+id, {scale:1.15, duration:0.08, ease:"power2.out"}, t+0.35);
+    tl.to("#"+id, {scale:1, duration:0.12, ease:"elastic.out(1,0.5)"}, t+0.43);
+    tl.to("#"+id, {opacity:0, scale:0.5, duration:0.15, ease:"power2.in"}, t+holdDur);
+  }
+  function xMark(parentSel, t, opts) { createSvgMark("x", parentSel, t, opts); }
+  function checkMark(parentSel, t, opts) { createSvgMark("check", parentSel, t, opts); }
+
+  // --- VFX 3: Confetti 폭발 (DOM 기반, 결정론적) ---
+  var CONFETTI_COLORS = ["#ff6b6b","#ffd93d","#6bcb77","#4d96ff","#ff922b","#e64980","#fff"];
+  function confettiBurst(t, opts) {
+    opts = opts || {};
+    var container = document.getElementById("confetti-container");
+    if (!container) return;
+    var count = opts.count || 35;
+    var originX = opts.x || 50;
+    var originY = opts.y || 45;
+    var seed = 73;
+
+    for (var i = 0; i < count; i++) {
+      seed = (seed * 16807 + 13) % 2147483647;
+      var p = document.createElement("div");
+      p.className = "confetti-p" + ((seed % 3 === 0) ? " circle" : "");
+      var w = 8 + (seed % 10);
+      p.style.cssText = "width:"+w+"px;height:"+(w*0.6)+"px;left:"+originX+"%;top:"+originY+"%;background:"+CONFETTI_COLORS[i%CONFETTI_COLORS.length];
+      container.appendChild(p);
+
+      seed = (seed * 16807 + 7) % 2147483647;
+      var angle = ((i * 137.5 + (seed%30)) % 360) * Math.PI / 180;
+      var velocity = 250 + (seed % 350);
+      var dx = Math.cos(angle) * velocity * (0.3 + (i%3)*0.25);
+      var dy = Math.sin(angle) * velocity * 0.7 - 200;
+
+      tl.fromTo(p,
+        {x:0, y:0, rotation:0, scale:1, opacity:1},
+        {x:dx, y:dy+350, rotation:(seed%720)-360, scale:0.2, opacity:0,
+         duration:0.9+((seed%4)*0.15), ease:"power1.out"}, t + (i%5)*0.02);
+    }
+  }
+
+  // --- VFX 4: 가격 카운터 (숫자 카운트업) ---
+  function priceCountUp(sel, t, dur) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    var text = el.textContent;
+    var match = text.match(/[\d,]+/);
+    if (!match) return;
+    var target = parseInt(match[0].replace(/,/g, ""), 10);
+    if (isNaN(target) || target <= 0) return;
+    var prefix = text.substring(0, text.indexOf(match[0]));
+    var suffix = text.substring(text.indexOf(match[0]) + match[0].length);
+    var counter = {val: 0};
+    el.textContent = prefix + "0" + suffix;
+
+    tl.to(counter, {
+      val: target, duration: dur || 0.7, ease: "power2.out",
+      snap: {val: 100},
+      onUpdate: function() { el.textContent = prefix + counter.val.toLocaleString() + suffix; }
+    }, t);
+    tl.set(counter, {}, t + (dur || 0.7) + 0.01);
+    tl.call(function() { el.textContent = prefix + target.toLocaleString() + suffix; }, null, t + (dur || 0.7) + 0.02);
+  }
+
+  // --- VFX 5: 필름 그레인 ---
+  function filmGrainOn(t, dur) {
+    var inner = document.querySelector(".film-grain-inner");
+    if (inner) inner.style.animation = "grain-shift 0.4s steps(3) infinite";
+    tl.to("#film-grain", {opacity:1, duration:0.08}, t);
+    if (dur) tl.to("#film-grain", {opacity:0, duration:0.12}, t + dur);
+  }
+  function filmGrainOff(t) {
+    tl.to("#film-grain", {opacity:0, duration:0.12}, t);
+  }
+
+  // --- VFX 6: Knockout 텍스트 ---
+  function knockoutText(sel, imgSrc, t) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    tl.call(function() {
+      el.classList.add("cap-knockout");
+      if (imgSrc) el.style.backgroundImage = "url(" + imgSrc + ")";
+    }, null, t - 0.01);
+    tl.fromTo(sel, {scale:0.5, opacity:0}, {scale:1.1, opacity:1, duration:0.25, ease:"elastic.out(1.2,0.4)"}, t);
+    tl.to(sel, {scale:1, duration:0.12, ease:"power2.out"}, t+0.25);
+  }
+
+  // --- VFX 7: 프리즈 프레임 ---
+  function freezeFrame(mediaSel, t, holdDur, textSel) {
+    holdDur = holdDur || 1.2;
+    flash(t);
+    tl.to(mediaSel, {filter:"brightness(1.1) saturate(1.2)", duration:0.05}, t);
+    tl.set(mediaSel, {willChange:"auto"}, t+0.05);
+    letterboxSlam(t, holdDur);
+    cornerFrame(t+0.08, holdDur-0.2);
+    if (textSel) {
+      tl.fromTo(textSel, {scale:0, opacity:0}, {scale:1, opacity:1, duration:0.20, ease:"back.out(2)"}, t+0.12);
+    }
+    tl.to(mediaSel, {filter:"none", duration:0.15}, t+holdDur-0.15);
+  }
+
+  // --- VFX 8: 크로마틱 수차 텍스트 ---
+  function chromaticText(sel, t, dur) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    var textContent = el.textContent;
+    if (!el.querySelector(".cap-chromatic-r")) {
+      el.classList.add("cap-chromatic");
+      el.style.position = "relative";
+      var rLayer = document.createElement("span");
+      rLayer.className = "cap-chromatic-r";
+      rLayer.textContent = textContent;
+      rLayer.style.cssText = "position:absolute;top:0;left:0;width:100%;pointer-events:none;color:rgba(255,0,0,0.5);mix-blend-mode:screen";
+      var bLayer = document.createElement("span");
+      bLayer.className = "cap-chromatic-b";
+      bLayer.textContent = textContent;
+      bLayer.style.cssText = "position:absolute;top:0;left:0;width:100%;pointer-events:none;color:rgba(0,80,255,0.5);mix-blend-mode:screen";
+      el.appendChild(rLayer);
+      el.appendChild(bLayer);
+    }
+    var r = el.querySelector(".cap-chromatic-r");
+    var b = el.querySelector(".cap-chromatic-b");
+    dur = dur || 0.5;
+    tl.fromTo(r, {x:8, opacity:0}, {x:3, opacity:0.6, duration:0.08, ease:"power3.out"}, t);
+    tl.fromTo(b, {x:-8, opacity:0}, {x:-3, opacity:0.6, duration:0.08, ease:"power3.out"}, t);
+    tl.to(r, {x:0, opacity:0, duration:dur, ease:"power2.out"}, t+0.1);
+    tl.to(b, {x:0, opacity:0, duration:dur, ease:"power2.out"}, t+0.1);
+  }
+
+  // --- VFX 9: PIP Overlay Animation ---
+  function pipAnimate(pipId, t, opts) {
+    opts = opts || {};
+    var sel = "#" + pipId;
+    var anim = opts.animation || "slide-up";
+    var holdDur = opts.hold || 2.0;
+    switch (anim) {
+      case "slide-up":
+        tl.set(sel, {y:200, opacity:0, scale:0.8}, t);
+        tl.to(sel, {y:0, opacity:1, scale:1, duration:0.35, ease:"power3.out"}, t);
+        break;
+      case "bounce-in":
+        tl.set(sel, {scale:0, opacity:0}, t);
+        tl.to(sel, {scale:1.1, opacity:1, duration:0.25, ease:"back.out(2.5)"}, t);
+        tl.to(sel, {scale:1, duration:0.15, ease:"power2.out"}, t+0.25);
+        break;
+      case "slide-right":
+        tl.set(sel, {x:-200, opacity:0}, t);
+        tl.to(sel, {x:0, opacity:1, duration:0.35, ease:"power3.out"}, t);
+        break;
+      case "fade-scale":
+        tl.set(sel, {scale:0.5, opacity:0}, t);
+        tl.to(sel, {scale:1, opacity:1, duration:0.40, ease:"power2.out"}, t);
+        break;
+      default:
+        tl.set(sel, {y:200, opacity:0, scale:0.8}, t);
+        tl.to(sel, {y:0, opacity:1, scale:1, duration:0.35, ease:"power3.out"}, t);
+    }
+    tl.to(sel, {y:"-=8", duration:0.8, ease:"sine.inOut", yoyo:true, repeat:1}, t+0.4);
+    tl.to(sel, {opacity:0, scale:0.8, y:100, duration:0.25, ease:"power2.in"}, t + holdDur - 0.25);
+  }
+
+  /* ═══════════════════════════════════════════
+     5. TEXT ANIMATION LIBRARY
+     ═══════════════════════════════════════════ */
+  function springWords(sel, t, dur) {
+    var ws = document.querySelectorAll(sel + " .w");
+    var stag = (dur || 0.35) / ws.length;
+    ws.forEach(function(w, i) {
+      tl.set(w, {scale:0, opacity:0, y:80, rotation:-15+i*8}, t + i*stag);
+      tl.to(w, {scale:1, opacity:1, y:0, rotation:0, duration:0.35, ease:"elastic.out(1.2,0.4)"}, t + i*stag);
+    });
+  }
+  function riseWords(sel, t, dur) {
+    var ws = document.querySelectorAll(sel + " .w");
+    var stag = (dur || 0.35) / ws.length;
+    ws.forEach(function(w, i) {
+      tl.set(w, {y:120, opacity:0, scale:0.6, rotation:8}, t + i*stag);
+      tl.to(w, {y:0, opacity:1, scale:1, rotation:0, duration:0.35, ease:"power4.out"}, t + i*stag);
+    });
+  }
+  function blurResolve(sel, t, dur) {
+    var ws = document.querySelectorAll(sel + " .w");
+    var stag = (dur || 0.40) / ws.length;
+    ws.forEach(function(w, i) {
+      tl.set(w, {filter:"blur(20px)", opacity:0, scale:1.5, y:-30}, t + i*stag);
+      tl.to(w, {filter:"blur(0px)", opacity:1, scale:1, y:0, duration:0.45, ease:"power3.out"}, t + i*stag);
+    });
+  }
+  function maskRevealUp(sel, t) {
+    tl.set(sel, {clipPath:"inset(100% 0 0 0)"}, t - 0.33);
+    tl.to(sel, {clipPath:"inset(0% 0 0 0)", duration:0.30, ease:"power3.out"}, t);
+  }
+  function staggerCenter(sel, t) {
+    var ws = document.querySelectorAll(sel + " .w");
+    var mid = (ws.length - 1) / 2;
+    ws.forEach(function(w, i) {
+      var delay = Math.abs(i - mid) * 0.10;
+      var dir = i < mid ? -60 : (i > mid ? 60 : 0);
+      tl.set(w, {scale:0, opacity:0, x:dir, rotation:dir*0.3}, t + delay);
+      tl.to(w, {scale:1, opacity:1, x:0, rotation:0, duration:0.30, ease:"elastic.out(1,0.5)"}, t + delay);
+    });
+  }
+  function wordCrossfade(sel, t) {
+    var ws = document.querySelectorAll(sel + " .w");
+    ws.forEach(function(w, i) {
+      tl.set(w, {opacity:0, y:50, scale:0.7, filter:"blur(8px)"}, t + i*0.10);
+      tl.to(w, {opacity:1, y:0, scale:1, filter:"blur(0px)", duration:0.35, ease:"power3.out"}, t + i*0.10);
+    });
+  }
+  function sharedAxisY(sel, t) {
+    var ws = document.querySelectorAll(sel + " .w");
+    ws.forEach(function(w, i) {
+      tl.set(w, {y:150, opacity:0, scale:0.3, rotation:20}, t + i*0.08);
+      tl.to(w, {y:0, opacity:1, scale:1, rotation:0, duration:0.40, ease:"elastic.out(1.1,0.45)"}, t + i*0.08);
+    });
+  }
+  function springShimmer(sel, t) {
+    tl.set(sel, {scale:0, opacity:0, rotation:-10}, t);
+    tl.to(sel, {scale:1.2, opacity:1, rotation:0, duration:0.25, ease:"elastic.out(1.5,0.3)"}, t);
+    tl.to(sel, {scale:1, duration:0.15, ease:"power2.out"}, t+0.25);
+    tl.to(sel, {scale:1.12, duration:0.12, ease:"sine.inOut", yoyo:true, repeat:2}, t+0.37);
+  }
+  function glowPulse(sel, t) {
+    tl.to(sel + " .em, " + sel + " .em-glow", {
+      textShadow:"0 0 60px rgba(255,255,255,1),0 0 120px rgba(255,255,255,0.5),0 3px 20px rgba(0,0,0,0.85)",
+      scale:1.18, duration:0.15, ease:"power3.in"
+    }, t);
+    tl.to(sel + " .em, " + sel + " .em-glow", {
+      textShadow:"0 0 25px rgba(255,255,255,0.4),0 3px 20px rgba(0,0,0,0.85)",
+      scale:1, duration:0.28, ease:"elastic.out(1,0.5)"
+    }, t+0.15);
+  }
+
+  // --- VFX 10: Badge Overlay ---
+  var _badgeId = 0;
+  function badgeOverlay(t, opts) {
+    opts = opts || {};
+    var id = "vfx-badge-" + (++_badgeId);
+    var text = opts.text || "BEST";
+    var style = opts.style || "hot";
+    var x = opts.x || "50%"; var y = opts.y || "25%";
+    var rotation = opts.rotation || -8;
+    var hold = opts.hold || 1.8;
+    var fontSize = opts.fontSize || 36;
+
+    var el = document.createElement("div");
+    el.id = id; el.className = "vfx-badge style-" + style;
+    el.textContent = text;
+    el.style.cssText = "left:"+x+";top:"+y+";transform:translate(-50%,-50%) rotate("+rotation+"deg);font-size:"+fontSize+"px;opacity:0";
+    document.getElementById("comp").appendChild(el);
+
+    tl.set("#"+id, {scale:0, opacity:0, rotation:rotation-20}, t);
+    tl.to("#"+id, {scale:1.2, opacity:1, rotation:rotation, duration:0.18, ease:"back.out(3)"}, t);
+    tl.to("#"+id, {scale:1, duration:0.12, ease:"power2.out"}, t+0.18);
+    tl.to("#"+id, {scale:1.06, duration:0.15, ease:"sine.inOut", yoyo:true, repeat:2}, t+0.35);
+    tl.to("#"+id, {opacity:0, scale:0.6, y:"-=30", duration:0.2, ease:"power2.in"}, t+hold);
+  }
+
+  // --- VFX 11: Animated Underline ---
+  var _ulId = 0;
+  function animatedUnderline(sel, t, opts) {
+    opts = opts || {};
+    var el = document.querySelector(sel);
+    if (!el) return;
+    var id = "vfx-ul-" + (++_ulId);
+    var color = opts.color || "#ff4444";
+    var thickness = opts.thickness || 6;
+    var hold = opts.hold || 1.5;
+    var rect = {width: el.offsetWidth || 400, height: el.offsetHeight || 60};
+
+    var svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    var w = rect.width + 40; var h = 30;
+    svg.setAttribute("viewBox","0 0 "+w+" "+h);
+    svg.setAttribute("width",w); svg.setAttribute("height",h);
+
+    var seedV = 42;
+    var d = "M10," + (h/2);
+    var segs = 8; var segW = (w-20)/segs;
+    for (var i = 1; i <= segs; i++) {
+      seedV = (seedV * 16807 + 7) % 2147483647;
+      var cy = (h/2) + ((seedV%10)-5);
+      d += " Q"+(10+segW*(i-0.5))+","+cy+" "+(10+segW*i)+","+(h/2);
+    }
+    var glow = document.createElementNS("http://www.w3.org/2000/svg","path");
+    glow.setAttribute("d",d); glow.setAttribute("class","ul-glow");
+    glow.style.stroke = color; glow.style.opacity = "0.3"; glow.style.strokeWidth = thickness*2.5;
+    var main = document.createElementNS("http://www.w3.org/2000/svg","path");
+    main.setAttribute("d",d); main.setAttribute("class","ul-main");
+    main.style.stroke = color; main.style.strokeWidth = thickness;
+
+    var totalLen = w * 1.2;
+    [glow, main].forEach(function(p) {
+      p.style.strokeDasharray = totalLen; p.style.strokeDashoffset = totalLen; p.setAttribute("fill","none"); p.style.strokeLinecap = "round";
+    });
+    svg.appendChild(glow); svg.appendChild(main);
+
+    var container = document.createElement("div");
+    container.id = id; container.className = "vfx-underline";
+    container.style.cssText = "width:"+w+"px;height:"+h+"px;opacity:0";
+    container.appendChild(svg);
+    el.style.position = "relative"; el.appendChild(container);
+    container.style.cssText += ";position:absolute;bottom:-8px;left:50%;transform:translateX(-50%)";
+
+    tl.to("#"+id, {opacity:1, duration:0.05}, t);
+    tl.to([main, glow], {strokeDashoffset:0, duration:0.35, ease:"power2.out"}, t);
+    tl.to("#"+id, {opacity:0, duration:0.15}, t+hold);
+  }
+
+  // --- VFX 12: Text Highlight Box ---
+  function highlightBox(sel, t, opts) {
+    opts = opts || {};
+    var el = document.querySelector(sel);
+    if (!el) return;
+    var color = opts.color || "yellow";
+    var hold = opts.hold || 1.5;
+
+    var box = document.createElement("div");
+    box.className = "vfx-highlight-box hl-" + color;
+    el.style.position = "relative";
+    box.style.cssText = "position:absolute;top:-4px;left:-8px;width:calc(100% + 16px);height:calc(100% + 8px);z-index:-1";
+    el.appendChild(box);
+
+    tl.fromTo(box, {scaleX:0, transformOrigin:"0% 50%"}, {scaleX:1, duration:0.25, ease:"power3.out"}, t);
+    tl.to(box, {opacity:0, duration:0.15}, t+hold);
+  }
+
+  // --- VFX 13: Streak Line ---
+  var _streakId = 0;
+  function streakLine(t, opts) {
+    opts = opts || {};
+    var id = "vfx-streak-" + (++_streakId);
+    var color = opts.color || "white";
+    var angle = opts.angle || 15;
+    var y = opts.y || "50%";
+    var thickness = opts.thickness || 4;
+    var speed = opts.speed || 0.2;
+
+    var el = document.createElement("div");
+    el.id = id; el.className = "vfx-streak streak-" + color;
+    el.style.cssText = "left:-50%;top:"+y+";width:200%;height:"+thickness+"px;transform:rotate("+angle+"deg);opacity:0";
+    var inner = document.createElement("div");
+    inner.className = "vfx-streak-inner";
+    el.appendChild(inner);
+    document.getElementById("comp").appendChild(el);
+
+    tl.set("#"+id, {opacity:1, x:"-100%"}, t);
+    tl.to("#"+id, {x:"100%", duration:speed, ease:"power2.in"}, t);
+    tl.set("#"+id, {opacity:0}, t+speed+0.01);
+  }
+
+  // --- VFX 14: Pulse Ring ---
+  var _ringId = 0;
+  function pulseRing(t, opts) {
+    opts = opts || {};
+    var id = "vfx-ring-" + (++_ringId);
+    var cx = opts.x || "50%"; var cy = opts.y || "50%";
+    var color = opts.color || "";
+    var count = opts.count || 2;
+    var size = opts.size || 120;
+
+    for (var i = 0; i < count; i++) {
+      var ring = document.createElement("div");
+      ring.id = id + "-" + i;
+      ring.className = "vfx-pulse-ring" + (color ? " ring-"+color : "");
+      ring.style.cssText = "width:"+size+"px;height:"+size+"px;left:"+cx+";top:"+cy+";transform:translate(-50%,-50%) scale(0.3);opacity:0";
+      document.getElementById("comp").appendChild(ring);
+
+      var delay = i * 0.12;
+      tl.to("#"+id+"-"+i, {scale:1, opacity:0.8, duration:0.2, ease:"power3.out"}, t+delay);
+      tl.to("#"+id+"-"+i, {scale:3, opacity:0, duration:0.5, ease:"power1.out"}, t+delay+0.2);
+    }
+  }
+
+  // --- VFX 15: Review Ticker ---
+  var _tickerId = 0;
+  function reviewTicker(t, opts) {
+    opts = opts || {};
+    var id = "vfx-ticker-" + (++_tickerId);
+    var items = opts.items || ["★★★★★ 좋아요"];
+    var x = opts.x || "5%";
+    var y = opts.y || "72%";
+    var w = opts.width || "300px";
+    var hold = opts.hold || 3.0;
+    var speed = opts.speed || 0.4;
+
+    var el = document.createElement("div");
+    el.id = id;
+    el.className = "vfx-review-ticker";
+    el.style.cssText = "left:"+x+";top:"+y+";width:"+w+";opacity:0;";
+
+    var inner = document.createElement("div");
+    inner.style.cssText = "display:flex;flex-direction:column;";
+    for (var i = 0; i < items.length; i++) {
+      var row = document.createElement("div");
+      row.className = "vfx-review-item";
+      row.id = id + "-r" + i;
+      row.innerHTML = '<span class="review-stars">' + (items[i].stars || "★★★★★") + '</span><span class="review-text">' + (items[i].text || items[i]) + '</span>';
+      row.style.opacity = "0";
+      inner.appendChild(row);
+    }
+    el.appendChild(inner);
+    document.getElementById("comp").appendChild(el);
+
+    tl.to("#"+id, {opacity:1, duration:0.2, ease:"power2.out"}, t);
+    for (var j = 0; j < items.length; j++) {
+      var delay = j * speed;
+      tl.fromTo("#"+id+"-r"+j, {y:30, opacity:0}, {y:0, opacity:1, duration:0.25, ease:"back.out(1.7)"}, t + 0.15 + delay);
+    }
+    var fadeOut = t + hold;
+    tl.to("#"+id, {opacity:0, y:-20, duration:0.3, ease:"power2.in"}, fadeOut);
+  }
+
+  var TEXT_ANIM = {
+    "spring-scale-in": function(sel, t) { springWords(sel, t, 0.35); },
+    "per-character-rise": function(sel, t) { riseWords(sel, t, 0.35); },
+    "rise-words": function(sel, t) { riseWords(sel, t, 0.30); },
+    "mask-reveal-up": function(sel, t) { maskRevealUp(sel, t); },
+    "stagger-from-center": function(sel, t) { staggerCenter(sel, t); },
+    "soft-blur-in": function(sel, t) { blurResolve(sel, t, 0.40); },
+    "per-word-crossfade": function(sel, t) { wordCrossfade(sel, t); },
+    "shared-axis-y": function(sel, t) { sharedAxisY(sel, t); },
+    "spring-words": function(sel, t) { springWords(sel, t, 0.25); },
+    "spring-scale-in+shimmer": function(sel, t) { springShimmer(sel, t); },
+    "split-chars-elastic": function(sel, t) { splitCharsElastic(sel, t, 0.5); },
+    "split-chars-wave": function(sel, t) { splitCharsWave(sel, t, 0.6); },
+    "split-chars-scatter": function(sel, t) { splitCharsScatter(sel, t, 0.5); },
+    "price-counter": function(sel, t) { priceCountUp(sel, t, 0.7); },
+    "chromatic-impact": function(sel, t) { blurResolve(sel, t, 0.35); chromaticText(sel, t+0.15, 0.4); }
+  };
+
+  /* ═══════════════════════════════════════════
+     6. MOTION PRESETS
+     ═══════════════════════════════════════════ */
+  function applyMotion(mediaId, cut, beatStart) {
+    var sel = "#" + mediaId;
+    var s = cut.scale || 1.0;
+    var ox = (cut.originX || 50) + "%";
+    var oy = (cut.originY || 50) + "%";
+    if (cut.face_hide && !cut.originY) oy = "70%";
+    var dur = cut.dur || 1.0;
+    var t = beatStart + cut.start;
+
+    tl.set(sel, {scale:s, transformOrigin: ox + " " + oy}, t);
+
+    switch (cut.motion) {
+      case "slow-zoom-in":
+        tl.to(sel, {scale:s*1.03, duration:dur, ease:"power1.out"}, t); break;
+      case "slow-zoom-out":
+        tl.set(sel, {scale:s*1.05, transformOrigin: ox+" "+oy}, t);
+        tl.to(sel, {scale:s*0.97, duration:dur, ease:"power1.out"}, t); break;
+      case "zoom-in":
+        tl.to(sel, {scale:s*1.08, duration:dur, ease:"power1.out"}, t); break;
+      case "zoom-out":
+        tl.to(sel, {scale:s*1.0, duration:dur, ease:"power1.out"}, t); break;
+      case "zoom-settle":
+        tl.to(sel, {scale:s*1.03, duration:dur, ease:"power1.out"}, t); break;
+      case "pan-right":
+        tl.to(sel, {scale:s*1.02, x:-20, duration:dur, ease:"power1.out"}, t); break;
+      case "pan-left":
+        tl.to(sel, {scale:s*1.02, x:20, duration:dur, ease:"power1.out"}, t); break;
+      case "pan-up":
+        tl.to(sel, {transformOrigin: ox+" 35%", duration:dur, ease:"power1.inOut"}, t); break;
+      case "drift-left":
+        tl.to(sel, {scale:s*1.02, x:-20, duration:dur, ease:"power1.out"}, t); break;
+      case "drift-right":
+        tl.to(sel, {scale:s*1.02, x:15, duration:dur, ease:"power1.out"}, t); break;
+      case "drift-up":
+        tl.to(sel, {scale:s*1.02, transformOrigin: ox+" 48%", duration:dur, ease:"power1.out"}, t); break;
+      case "drift-down":
+        tl.to(sel, {scale:s*1.02, y:10, duration:dur, ease:"power1.out"}, t); break;
+      default:
+        tl.to(sel, {scale:s*1.02, duration:dur, ease:"power1.out"}, t);
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     7. TRANSITION PRESETS
+     ═══════════════════════════════════════════ */
+  function applyTransitionIn(beat, prevBeat) {
+    var t = beat.start;
+    var type = beat.transition_in;
+    if (!type || !prevBeat) return;
+
+    var prevCuts = prevBeat.cuts || [];
+    var lastPrevCut = prevCuts.length ? prevCuts[prevCuts.length - 1].id : null;
+    var firstCut = (beat.cuts || [])[0];
+    if (!firstCut) return;
+
+    switch (type) {
+      case "flash-through-white":
+        if (lastPrevCut) tl.set("#"+lastPrevCut, {autoAlpha:0}, t);
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t);
+        tl.set("#flash1", {opacity:0.9}, t);
+        tl.to("#flash1", {opacity:0, duration:0.22, ease:"power2.out"}, t+0.03);
+        beatPunch(t); rgbGlitch(t); shakeJitter(t, 14);
+        break;
+      case "sdf-iris":
+        if (lastPrevCut) tl.set("#"+lastPrevCut, {autoAlpha:0}, t);
+        beatPunch(t); shakeJitter(t, 12);
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t);
+        tl.fromTo("#"+firstCut.id, {clipPath:"circle(0% at 50% 50%)"}, {clipPath:"circle(100% at 50% 50%)", duration:0.30, ease:"power2.out"}, t);
+        break;
+      case "push-slide":
+        flash(t); beatPunch(t); speedLines(t); shakeJitter(t, 15); glitchSlice(t);
+        tl.set("#"+firstCut.id, {autoAlpha:1, x:1080}, t);
+        tl.to("#"+firstCut.id, {x:0, duration:0.32, ease:"power3.inOut"}, t);
+        if (lastPrevCut) tl.to("#"+lastPrevCut, {x:-1080, duration:0.32, ease:"power3.inOut"}, t);
+        break;
+      case "zoom-through":
+        if (lastPrevCut) {
+          tl.to("#"+lastPrevCut+"-m", {scale:2.5, filter:"blur(8px)", duration:0.25, ease:"power3.in", overwrite:"auto"}, t-0.12);
+          tl.to("#"+lastPrevCut, {opacity:0, duration:0.15}, t-0.07);
+        }
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t-0.07);
+        tl.fromTo("#"+firstCut.id, {scale:0.5, filter:"blur(8px)", opacity:0.3},
+          {scale:1, filter:"blur(0px)", opacity:1, duration:0.30, ease:"power3.out"}, t-0.07);
+        beatPunch(t); shakeJitter(t, 16); rgbGlitch(t);
+        break;
+      case "light-leak":
+        if (lastPrevCut) tl.set("#"+lastPrevCut, {autoAlpha:0}, t);
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t);
+        tl.set("#flash1", {opacity:0.4, background:"rgba(255,240,220,0.6)"}, t);
+        tl.to("#flash1", {opacity:0, duration:0.35, ease:"power2.out"}, t+0.03);
+        tl.set("#flash1", {background:"#fff"}, t+0.38);
+        beatPunch(t); rotationKick(t); letterboxSlam(t, 2.0);
+        break;
+      case "blur-crossfade":
+        if (lastPrevCut) {
+          tl.to("#"+lastPrevCut+"-m", {filter:"blur(10px)", scale:1.03, duration:0.22, ease:"power2.inOut", overwrite:"auto"}, t-0.08);
+          tl.to("#"+lastPrevCut, {opacity:0, duration:0.22, ease:"power2.inOut"}, t-0.05);
+        }
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t);
+        tl.fromTo("#"+firstCut.id, {filter:"blur(10px)", scale:0.97, opacity:0.3},
+          {filter:"blur(0px)", scale:1, opacity:1, duration:0.28, ease:"power2.inOut"}, t);
+        beatPunch(t); glitchSlice(t); shakeJitter(t, 10);
+        break;
+      case "vertical-blinds":
+        tl.set("#blinds", {display:"flex"}, t-0.03);
+        tl.set(".blind-strip", {scaleX:1}, t-0.03);
+        tl.set("#"+firstCut.id, {autoAlpha:1, zIndex:1}, t);
+        if (lastPrevCut) tl.set("#"+lastPrevCut, {zIndex:10}, t);
+        document.querySelectorAll(".blind-strip").forEach(function(s, i) {
+          tl.to(s, {scaleX:0, duration:0.32, ease:"power2.inOut"}, t + i*0.03);
+        });
+        tl.set("#blinds", {display:"none"}, t+0.35);
+        if (lastPrevCut) tl.set("#"+lastPrevCut, {autoAlpha:0, zIndex:"auto"}, t+0.35);
+        beatPunch(t); scanLines(t); shakeJitter(t, 14); strobeFlash(t, 3);
+        break;
+      case "cinematic-zoom":
+        if (lastPrevCut) {
+          tl.to("#"+lastPrevCut+"-m", {scale:2.0, filter:"blur(6px)", duration:0.20, ease:"power3.in", overwrite:"auto"}, t-0.14);
+          tl.to("#"+lastPrevCut, {opacity:0, duration:0.12}, t-0.06);
+        }
+        tl.set("#"+firstCut.id, {autoAlpha:1}, t-0.04);
+        tl.fromTo("#"+firstCut.id, {scale:0.6, filter:"blur(6px)", opacity:0},
+          {scale:1, filter:"blur(0px)", opacity:1, duration:0.28, ease:"power3.out"}, t-0.04);
+        beatPunch(t); rgbGlitch(t); shakeJitter(t, 18); glitchSlice(t); rotationKick(t); letterboxSlam(t, 1.0);
+        break;
+      default:
+        flash(t); beatPunch(t);
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     8. MOGRAPH PATTERN — per-beat auto-assign
+     ═══════════════════════════════════════════ */
+  var MG_POOL = [
+    function(t, dur) { speedLines(t+0.05); cornerFrame(t+0.08, dur*0.6); },
+    function(t, dur) { letterboxSlam(t, dur*0.8); scanBeam(t+0.03); },
+    function(t, dur) { crosshair(t+0.05, dur*0.5); bracketPair(t+0.08, dur*0.6); scanBeam(t+0.05); },
+    function(t, dur) { cornerFrame(t+0.05, dur*0.7); },
+    function(t, dur) { bracketPair(t+0.05, dur*0.7); crosshair(t+0.10, dur*0.5); },
+    function(t, dur) { letterboxSlam(t, dur*0.9); },
+    function(t, dur) { cornerFrame(t+0.05, dur*0.5); },
+    function(t, dur) { cornerFrame(t+0.05, dur*0.7); bracketPair(t+0.08, dur*0.6); letterboxSlam(t, dur*0.85); },
+    function(t, dur) { letterboxSlam(t, dur*0.8); }
+  ];
+
+  /* ═══════════════════════════════════════════
+     9. BUILD TIMELINE — main orchestrator
+     ═══════════════════════════════════════════ */
+  function buildTimeline(cfg, scr) {
+    tl = gsap.timeline({ paused: true });
+    var dur = cfg.meta.duration;
+
+    gsap.set("#blinds", {display:"none"});
+    tl.to("#progress", {width:"100%", duration:dur, ease:"none"}, 0);
+
+    cfg.beats.forEach(function(beat, bi) {
+      var prevBeat = bi > 0 ? cfg.beats[bi - 1] : null;
+      var beatStart = beat.start;
+      var beatDur = beat.duration;
+      var scrBeat = scr.beats[bi];
+
+      // --- Transition in ---
+      applyTransitionIn(beat, prevBeat);
+
+      // --- Cuts: motion + effects (visibility managed by hyperframes data-start/data-duration) ---
+      (beat.cuts || []).forEach(function(cut, ci) {
+        var cutTime = beatStart + cut.start;
+        var motionEl = document.getElementById(cut.id + "-m") ? cut.id + "-m" : cut.id;
+        applyMotion(motionEl, cut, beatStart);
+
+        if (ci > 0) {
+          cutFlash(cutTime);
+          var mgIdx = (bi * 3 + ci) % 4;
+          if (mgIdx === 0) rgbGlitch(cutTime);
+          else if (mgIdx === 1) { rotationKick(cutTime); speedLines(cutTime); }
+          else if (mgIdx === 2) { strobeFlash(cutTime, 2); scanBeam(cutTime+0.02); }
+          else { glitchSlice(cutTime); }
+        }
+      });
+
+      // --- Mograph for beat ---
+      if (bi < MG_POOL.length) MG_POOL[bi](beatStart, beatDur);
+
+      // --- VFX per beat (config.json beat.vfx array) ---
+      var vfxList = beat.vfx || [];
+      vfxList.forEach(function(vfx) {
+        if (typeof vfx === "string") vfx = {type: vfx};
+        var vt = beatStart + (vfx.offset || 0);
+        switch (vfx.type) {
+          case "film-grain":
+            filmGrainOn(vt, vfx.duration || beatDur); break;
+          case "confetti":
+            confettiBurst(vt, {count:vfx.count||35, x:vfx.x||50, y:vfx.y||45}); break;
+          case "x-mark":
+            var xParent = (beat.cuts||[]).length ? "#"+(beat.cuts[0].id) : "#comp";
+            xMark(xParent, vt, {size:vfx.size||180, cx:vfx.cx, cy:vfx.cy, hold:vfx.hold||beatDur*0.7}); break;
+          case "check-mark":
+            var ckParent = (beat.cuts||[]).length ? "#"+(beat.cuts[0].id) : "#comp";
+            checkMark(ckParent, vt, {size:vfx.size||180, cx:vfx.cx, cy:vfx.cy, hold:vfx.hold||beatDur*0.7}); break;
+          case "freeze-frame":
+            var fMedia = (beat.cuts||[]).length ? "#"+(beat.cuts[0].id) : "#comp";
+            var fText = scrBeat && scrBeat.subtitle && scrBeat.subtitle[0] ? "#"+scrBeat.subtitle[0].id : null;
+            freezeFrame(fMedia, vt, vfx.hold||1.2, fText); break;
+          case "chromatic":
+            if (scrBeat && scrBeat.subtitle) {
+              scrBeat.subtitle.forEach(function(s) { chromaticText("#"+s.id, vt, vfx.duration||0.5); });
+            } break;
+          case "knockout":
+            if (scrBeat && scrBeat.subtitle) {
+              var kSrc = vfx.image || _getCutImgSrc(beat);
+              scrBeat.subtitle.forEach(function(s) { knockoutText("#"+s.id, kSrc, vt); });
+            } break;
+          case "badge":
+            badgeOverlay(vt, {text:vfx.text||"BEST", style:vfx.style||"hot", x:vfx.x||"50%", y:vfx.y||"25%", rotation:vfx.rotation||-8, hold:vfx.hold||beatDur*0.7, fontSize:vfx.fontSize||36}); break;
+          case "underline":
+            if (scrBeat && scrBeat.subtitle && scrBeat.subtitle[0]) {
+              animatedUnderline("#"+scrBeat.subtitle[0].id, vt, {color:vfx.color||"#ff4444", thickness:vfx.thickness||6, hold:vfx.hold||beatDur*0.6});
+            } break;
+          case "highlight-box":
+            if (scrBeat && scrBeat.subtitle) {
+              var hbTarget = vfx.subIndex !== undefined ? scrBeat.subtitle[vfx.subIndex] : scrBeat.subtitle[0];
+              if (hbTarget) highlightBox("#"+hbTarget.id, vt, {color:vfx.color||"yellow", hold:vfx.hold||beatDur*0.6});
+            } break;
+          case "streak":
+            streakLine(vt, {color:vfx.color||"white", angle:vfx.angle||15, y:vfx.y||"50%", thickness:vfx.thickness||4, speed:vfx.speed||0.2}); break;
+          case "pulse-ring":
+            pulseRing(vt, {x:vfx.x||"50%", y:vfx.y||"50%", color:vfx.color||"", count:vfx.count||2, size:vfx.size||120}); break;
+          case "review-ticker":
+            reviewTicker(vt, {items:vfx.items||[], x:vfx.x||"5%", y:vfx.y||"72%", width:vfx.width||"300px", hold:vfx.hold||3.0, speed:vfx.speed||0.4}); break;
+        }
+      });
+
+      // --- comparison 비트: per-cut overlay가 처리하므로 자동 X마크 생략 ---
+
+      // --- per-cut overlay: red-x / check ---
+      (beat.cuts||[]).forEach(function(cut) {
+        if (!cut.overlay) return;
+        var cutAbs = beatStart + (cut.start||0);
+        var cutDur = cut.dur || 0.5;
+        if (cut.overlay === "red-x") {
+          xMark("#"+cut.id, cutAbs+0.08, {size:320, hold:cutDur*0.8});
+        } else if (cut.overlay === "check") {
+          checkMark("#"+cut.id, cutAbs+0.08, {size:320, hold:cutDur*0.8});
+        }
+      });
+
+      // --- PIP overlay ---
+      if (beat.pip) {
+        var pipT = beatStart + (beat.pip.offset || 0.3);
+        var pipId = "pip-" + bi;
+        pipAnimate(pipId, pipT, {
+          animation: beat.pip.animation || "slide-up",
+          hold: beat.pip.hold || Math.min(beatDur - 0.3, 2.0)
+        });
+      }
+
+      // --- Text animations (per-subtitle clips: hyperframes manages visibility, GSAP does entrance only) ---
+      if (!scrBeat) return;
+      var subs = scrBeat.subtitle || [];
+      subs.forEach(function(sub, si) {
+        var sel = "#" + sub.id;
+        var appear = sub.appear_at || (beatStart + (sub.delay || si * 0.3));
+        var anim = sub.animation || beat.text_animation || "spring-scale-in";
+
+        var fn = TEXT_ANIM[anim] || TEXT_ANIM["spring-scale-in"];
+        fn(sel, appear);
+
+        if (sub.emphasis && sub.emphasis.length) {
+          glowPulse(sel, appear + 0.25);
+        }
+
+        if (sub.style === "knockout") {
+          var kImg = sub.knockout_image || _getCutImgSrc(beat);
+          knockoutText(sel, kImg, appear);
+        }
+        if (sub.style === "chromatic") {
+          chromaticText(sel, appear + 0.1, 0.4);
+        }
+      });
+    });
+
+    // --- CTA logo animation ---
+    var ctaLogo = document.getElementById("cta-logo");
+    if (ctaLogo) {
+      var ctaBeat = cfg.beats.find(function(b) { return b.section === "CTA"; });
+      if (ctaBeat) {
+        tl.fromTo("#cta-logo", {scale:0, opacity:0, rotation:-15},
+          {scale:1.1, opacity:1, rotation:0, duration:0.20, ease:"elastic.out(1.3,0.4)"}, ctaBeat.start + 0.05);
+        tl.to("#cta-logo", {scale:1, duration:0.12, ease:"power2.out"}, ctaBeat.start + 0.25);
+      }
+    }
+
+    // --- SFX cues (price shimmer for last beat) ---
+    var lastBeat = cfg.beats[cfg.beats.length - 1];
+    if (lastBeat && lastBeat.section === "PRICE") {
+      var priceT = (cfg.sfx_cues && cfg.sfx_cues.price_ding) || lastBeat.start + 0.26;
+      strobeFlash(priceT, 4);
+    }
+
+    // --- Fade out ---
+    var lastCut = lastBeat && lastBeat.cuts[lastBeat.cuts.length - 1];
+    if (lastCut) {
+      tl.to("#" + lastCut.id, {opacity:0, duration:0.25, ease:"power2.in"}, dur - 0.25);
+    }
+
+    window.__timelines = window.__timelines || {};
+    window.__timelines["reel-" + cfg.meta.version] = tl;
+  }
+
+  /* ═══════════════════════════════════════════
+     BOOT
+     ═══════════════════════════════════════════ */
+  if (CONFIG && SCRIPT) {
+    init();
+  } else {
+    Promise.all([
+      fetch("./config.json").then(function(r) { return r.json(); }),
+      fetch("./script.json").then(function(r) { return r.json(); })
+    ]).then(function(data) {
+      CONFIG = data[0];
+      SCRIPT = data[1];
+      init();
+    }).catch(function(e) {
+      console.error("Failed to load config/script:", e);
+    });
+  }
+
+})();
+</script>
+</body>
+</html>
