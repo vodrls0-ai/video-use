@@ -62,14 +62,14 @@ _p.add_argument("--style", default=None, choices=list(EMOTION_REFS.keys()))
 _a, _ = _p.parse_known_args()
 FORCE_STYLE = _a.style  # None이면 비트별 자동매핑
 
-PRODUCT = "피쓰리_023나일론팬츠"
+PRODUCT = "키퍼_N31(초경량나일론팬츠)"
 VIDEO_ROOT = Path(r"Z:\NOMAL\자동화\비디오\video")
-VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "story"
+VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "reel_v1"
 SCRIPT_PATH = VERSION_DIR / "script.json"
 TTS_DIR = VERSION_DIR / "tts"
 
 SPEED_FACTOR = 1.2  # 1.2x (사용자 요청: 1.3→1.2 감속)
-PITCH_UP = 1.16    # 16% 피치업 (7/17 사용자 지시로 13%→16% 재상향)
+PITCH_UP = 1.075   # 7.5% 피치업 (7/18 사용자 지시로 13%→7.5% 재재하향, 최초 코덱스 검증값으로 복귀)
 
 
 def load_model():
