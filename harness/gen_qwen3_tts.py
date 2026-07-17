@@ -1,28 +1,75 @@
-"""Qwen3-TTS voice clone — emotional ICL mode + speedup + SFX generation"""
+"""Qwen3-TTS voice clone — 5감정 비트매핑 체제 + speedup + SFX"""
 import sys, json, subprocess, struct, math
 from pathlib import Path
 
 # ── Paths ──
 HARNESS = Path(__file__).parent
 MODEL_PATH = r"C:\Users\user\models\qwen3-tts\1.7B-Base"
-REF_AUDIO = str(HARNESS / "voice_ref_emotional.wav")
-REF_TEXT = "35세 부터 분위기 빠진다는 거 진짜 현실이네요 다리는 가늘어지고 허리는 아물찌고 머리부터 자신감이 떨어졌어요 운동하면 되는 거 아니냐고요"
 
-PRODUCT = "레이건_요트링거반팔티"
+VOICE_CLONE = Path(r"Z:\NOMAL\자동화\비디오\voice_clone")
+
+# 5감정 레퍼런스 매핑 (보정본 사용)
+# ref_text = Whisper 전사 결과 그대로 (실제 발화와 일치해야 ICL 정상 작동)
+EMOTION_REFS = {
+    "hook": {
+        "ref": str(VOICE_CLONE / "ref_hook_processed.wav"),
+        "text": "하체가 외소에서 반바지를 못 입는 분들을 위한 한장 29,800원 여름에 편하면서도 다리 길어 보이는 와이드핏 범유다 입니다",
+    },
+    "pain": {
+        "ref": str(VOICE_CLONE / "ref_pain_processed.wav"),
+        "text": "35세부터 근육이 빠진다는 거 진짜 현실이네요 다리는 가늘어지고 나이 살은 찌고 머리 보도 자신감이 떨어졌어요 운동하면 되는 거 아니냐고요?",
+    },
+    "confident": {
+        "ref": str(VOICE_CLONE / "ref_confident_processed.wav"),
+        "text": "같은 몸인데 분위기는 완전히 달라져요 결국 나이가 문제가 아니라 분위기 문제였습니다 제가 아이에게 칭찬받을 수 있을 때까지 팔로우하고 지켜봐 주세요",
+    },
+    "price": {
+        "ref": str(VOICE_CLONE / "ref_price_processed.wav"),
+        "text": "무엇보다 이게 전보 29,800원이에요 1 플러스 1하면 한 장에 14,900원 밖에 안 하거든요 이 퀄리티의 이 가격 진짜 비쳤다고 생각해요",
+    },
+    "cta": {
+        "ref": str(VOICE_CLONE / "ref_cta_processed.wav"),
+        "text": "지금 아래 링크 클릭 하시고요 한 번만 입어보시면 진짜 다른 바지 못 입으실 거예요 꼭 한 번 입어보세요",
+    },
+}
+
+# narration_id → 감정 매핑 (블루트/릴스 공통)
+BEAT_TO_EMOTION = {
+    "opening": "hook",
+    "hook": "hook",
+    "problem": "pain",
+    "pain": "pain",
+    "pivot": "confident",
+    "usp1": "confident",
+    "usp2": "confident",
+    "usp3": "confident",
+    "usp4": "confident",
+    "usp5": "confident",
+    "usp6": "price",
+    "price": "price",
+    "price_shock": "price",
+    "price_teaser": "price",
+    "price_punch": "price",
+    "cta": "cta",
+    "kick": "confident",
+    "detail": "confident",
+}
+
+# 하위호환: --style 옵션 (단일감정 강제)
+import argparse as _ap
+_p = _ap.ArgumentParser(add_help=False)
+_p.add_argument("--style", default=None, choices=list(EMOTION_REFS.keys()))
+_a, _ = _p.parse_known_args()
+FORCE_STYLE = _a.style  # None이면 비트별 자동매핑
+
+PRODUCT = "아케이드랩스_DL826"
 VIDEO_ROOT = Path(r"Z:\NOMAL\자동화\비디오\video")
-VERSION_DIR = VIDEO_ROOT / PRODUCT / "edit" / "v1"
+VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "story"
 SCRIPT_PATH = VERSION_DIR / "script.json"
 TTS_DIR = VERSION_DIR / "tts"
 
-SPEED_FACTOR = 1.3  # 1.3x faster
-
-# beat별 감정 SSML-like prefix (Qwen3 doesn't use SSML, but adding emphasis markers in text)
-BEAT_EMOTIONS = {
-    "hook": "",    # hook = 강하고 빠르게
-    "kick": "",    # kick = 자신감 넘치게
-    "detail": "",  # detail = 설명적이지만 에너지
-    "cta": "",     # cta = 친근하게
-}
+SPEED_FACTOR = 1.2  # 1.2x (사용자 요청: 1.3→1.2 감속)
+PITCH_UP = 1.10    # 10% 피치업 (7/17 사용자 지시로 7.5%→10% 상향)
 
 
 def load_model():
@@ -34,21 +81,39 @@ def load_model():
     return model
 
 
-def create_clone_prompt(model):
-    print(f"  [ICL] 감정 레퍼런스: {Path(REF_AUDIO).name}")
-    print(f"  [ICL] ref_text: {REF_TEXT[:50]}...")
+def resolve_emotion(beat_id: str) -> str:
+    """beat_id → 감정 키 결정. --style 강제 시 전부 같은 감정."""
+    if FORCE_STYLE:
+        return FORCE_STYLE
+    base = beat_id.rstrip("0123456789").lower()
+    return BEAT_TO_EMOTION.get(base, BEAT_TO_EMOTION.get(beat_id, "confident"))
+
+
+def create_clone_prompt(model, emotion_key: str):
+    """단일 감정 프롬프트 생성 (GPU 메모리 절약 — 필요 시에만 로드)"""
+    emo_data = EMOTION_REFS[emotion_key]
+    ref_path = emo_data["ref"]
+    if not Path(ref_path).exists():
+        print(f"  [WARN] {ref_path} 없음 → pain으로 대체")
+        emo_data = EMOTION_REFS["pain"]
+        ref_path = emo_data["ref"]
     prompt = model.create_voice_clone_prompt(
-        ref_audio=REF_AUDIO,
-        ref_text=REF_TEXT,
-        x_vector_only_mode=False  # ICL = full style transfer
+        ref_audio=ref_path,
+        ref_text=emo_data["text"],
+        x_vector_only_mode=False,
     )
-    print("  [ICL] 클론 프롬프트 생성 완료")
     return prompt
 
 
-def generate_beat(model, clone_prompt, beat_id: str, text: str, output_wav: Path):
+def generate_beat(model, beat_id: str, text: str, output_wav: Path, _prompt_cache: dict = {}):
+    """비트별 감정 자동 선택 + 프롬프트 캐싱 (같은 감정은 재사용)"""
     import numpy as np, soundfile as sf
-    print(f"  [{beat_id}] \"{text[:35]}...\"")
+    emotion = resolve_emotion(beat_id)
+    if emotion not in _prompt_cache:
+        print(f"  [ICL:{emotion}] {Path(EMOTION_REFS[emotion]['ref']).name}")
+        _prompt_cache[emotion] = create_clone_prompt(model, emotion)
+    clone_prompt = _prompt_cache[emotion]
+    print(f"  [{beat_id}:{emotion}] \"{text[:35]}...\"")
     audios, sr = model.generate_voice_clone(
         text=text,
         language="korean",
@@ -58,15 +123,28 @@ def generate_beat(model, clone_prompt, beat_id: str, text: str, output_wav: Path
     audio_np = audios[0] if isinstance(audios[0], np.ndarray) else audios[0].cpu().float().numpy()
     sf.write(str(output_wav), audio_np, sr)
     dur = len(audio_np) / sr
-    print(f"  [{beat_id}] 원본: {dur:.2f}s @ {sr}Hz")
+    print(f"  [{beat_id}:{emotion}] 원본: {dur:.2f}s @ {sr}Hz")
     return dur, sr
 
 
-def speedup_beat(input_wav: Path, output_mp3: Path, factor: float):
-    """ffmpeg atempo로 속도 올림"""
+def speedup_beat(input_wav: Path, output_mp3: Path, factor: float, pitch_up: float = PITCH_UP):
+    """피치업 + atempo 속도 올림 + 라우드니스 정규화"""
+    # Qwen3 출력 sample_rate 감지
+    sr_probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", str(input_wav)],
+        capture_output=True, text=True, timeout=10
+    )
+    sr = int(sr_probe.stdout.strip()) if sr_probe.returncode == 0 else 24000
+    pitched_rate = int(sr * pitch_up)
+
+    af_chain = (
+        f"asetrate={pitched_rate},aresample={sr},"
+        f"atempo={factor},"
+        f"loudnorm=I=-14:LRA=11:TP=-1"
+    )
     cmd = [
         "ffmpeg", "-y", "-i", str(input_wav),
-        "-filter:a", f"atempo={factor}",
+        "-filter:a", af_chain,
         "-b:a", "192k",
         str(output_mp3)
     ]
@@ -74,13 +152,12 @@ def speedup_beat(input_wav: Path, output_mp3: Path, factor: float):
     if r.returncode != 0:
         print(f"  speedup FAIL: {r.stderr[:200]}")
         return 0.0
-    # get duration
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(output_mp3)],
         capture_output=True, text=True, timeout=10
     )
     dur = float(probe.stdout.strip()) if probe.returncode == 0 else 0.0
-    print(f"  [{input_wav.stem}] {factor}x 속도: {dur:.2f}s")
+    print(f"  [{input_wav.stem}] pitch+{pitch_up:.3f} → {factor}x → loudnorm: {dur:.2f}s")
     return dur
 
 
@@ -141,13 +218,13 @@ def main():
     TTS_DIR.mkdir(exist_ok=True)
 
     model = load_model()
-    clone_prompt = create_clone_prompt(model)
 
     beat_files = []
     beat_durations = []
     total_chars = 0
 
-    GAPS = {"hook": 0.10, "kick": 0.12, "detail": 0.10, "cta": 0.0}
+    # 비트 간 무음 갭 = 0 (하드코딩, 무음구간 절대 금지)
+    GAP = 0.0
 
     for beat in beats:
         narration = beat.get("narration", "").strip()
@@ -159,11 +236,10 @@ def main():
         wav_path = TTS_DIR / f"{bid}_raw.wav"
         mp3_path = TTS_DIR / f"{bid}.mp3"
 
-        generate_beat(model, clone_prompt, bid, narration, wav_path)
+        generate_beat(model, bid, narration, wav_path)
         dur = speedup_beat(wav_path, mp3_path, SPEED_FACTOR)
 
-        beat_type = bid.rstrip("0123456789").lower()
-        gap = GAPS.get(beat_type, 0.10)
+        gap = GAP
 
         beat_files.append(mp3_path)
         beat_durations.append({"id": bid, "duration": round(dur, 3), "gap_after": gap})
@@ -205,6 +281,8 @@ def main():
     print(f"\n  TTS={total_audio:.1f}s + 갭={total_gaps:.1f}s = {total_audio + total_gaps:.1f}s")
 
     # Update script.json
+    if "meta" not in script:
+        script["meta"] = {}
     script["meta"]["tts"] = {
         "file": "tts_v1.mp3",
         "timing_file": "",
@@ -240,7 +318,7 @@ def main():
 
     # Free GPU memory
     import torch
-    del model, clone_prompt
+    del model
     torch.cuda.empty_cache()
     print("  GPU 메모리 해제 완료\n")
 
