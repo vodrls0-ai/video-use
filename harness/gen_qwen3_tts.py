@@ -62,14 +62,14 @@ _p.add_argument("--style", default=None, choices=list(EMOTION_REFS.keys()))
 _a, _ = _p.parse_known_args()
 FORCE_STYLE = _a.style  # None이면 비트별 자동매핑
 
-PRODUCT = "아케이드랩스_DL826"
+PRODUCT = "피쓰리_023나일론팬츠"
 VIDEO_ROOT = Path(r"Z:\NOMAL\자동화\비디오\video")
 VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "story"
 SCRIPT_PATH = VERSION_DIR / "script.json"
 TTS_DIR = VERSION_DIR / "tts"
 
 SPEED_FACTOR = 1.2  # 1.2x (사용자 요청: 1.3→1.2 감속)
-PITCH_UP = 1.10    # 10% 피치업 (7/17 사용자 지시로 7.5%→10% 상향)
+PITCH_UP = 1.16    # 16% 피치업 (7/17 사용자 지시로 13%→16% 재상향)
 
 
 def load_model():
@@ -137,9 +137,13 @@ def speedup_beat(input_wav: Path, output_mp3: Path, factor: float, pitch_up: flo
     sr = int(sr_probe.stdout.strip()) if sr_probe.returncode == 0 else 24000
     pitched_rate = int(sr * pitch_up)
 
+    # 무음구간 제거: TTS 모델이 문장 끝에 최대 1초+ 무음 패딩을 남기는 경우가 있어
+    # (7/17 흠뻑쇼 스크립트 hook.mp3에서 1.12s 트레일링 무음 실측) 앞뒤 모두 트림
     af_chain = (
         f"asetrate={pitched_rate},aresample={sr},"
         f"atempo={factor},"
+        f"silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB:detection=peak,"
+        f"areverse,silenceremove=start_periods=1:start_duration=0.1:start_threshold=-30dB:detection=peak,areverse,"
         f"loudnorm=I=-14:LRA=11:TP=-1"
     )
     cmd = [
