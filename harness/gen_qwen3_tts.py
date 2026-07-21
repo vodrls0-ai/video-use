@@ -62,14 +62,14 @@ _p.add_argument("--style", default=None, choices=list(EMOTION_REFS.keys()))
 _a, _ = _p.parse_known_args()
 FORCE_STYLE = _a.style  # None이면 비트별 자동매핑
 
-PRODUCT = "키퍼_N31(초경량나일론팬츠)"
+PRODUCT = "노벨러_노이즈워싱데님반팔셔츠"
 VIDEO_ROOT = Path(r"Z:\NOMAL\자동화\비디오\video")
-VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "reel_v1"
+VERSION_DIR = VIDEO_ROOT / PRODUCT / "reels" / "meta"
 SCRIPT_PATH = VERSION_DIR / "script.json"
 TTS_DIR = VERSION_DIR / "tts"
 
 SPEED_FACTOR = 1.2  # 1.2x (사용자 요청: 1.3→1.2 감속)
-PITCH_UP = 1.075   # 7.5% 피치업 (7/18 사용자 지시로 13%→7.5% 재재하향, 최초 코덱스 검증값으로 복귀)
+PITCH_UP = 1.13    # rule37 확정값 (7/18 재하향 후 잠금)
 
 
 def load_model():
@@ -108,6 +108,7 @@ def create_clone_prompt(model, emotion_key: str):
 def generate_beat(model, beat_id: str, text: str, output_wav: Path, _prompt_cache: dict = {}):
     """비트별 감정 자동 선택 + 프롬프트 캐싱 (같은 감정은 재사용)"""
     import numpy as np, soundfile as sf
+    text = text.replace("1+1", "원플러스원")  # "일플러스일" 오발음 방지 (사용자 반복 지적, 6/29~)
     emotion = resolve_emotion(beat_id)
     if emotion not in _prompt_cache:
         print(f"  [ICL:{emotion}] {Path(EMOTION_REFS[emotion]['ref']).name}")
@@ -129,40 +130,135 @@ def generate_beat(model, beat_id: str, text: str, output_wav: Path, _prompt_cach
 
 def speedup_beat(input_wav: Path, output_mp3: Path, factor: float, pitch_up: float = PITCH_UP):
     """피치업 + atempo 속도 올림 + 라우드니스 정규화"""
+    import json as _json
     # Qwen3 출력 sample_rate 감지
     sr_probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "stream=sample_rate", "-of", "csv=p=0", str(input_wav)],
-        capture_output=True, text=True, timeout=10
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
     )
     sr = int(sr_probe.stdout.strip()) if sr_probe.returncode == 0 else 24000
     pitched_rate = int(sr * pitch_up)
 
-    # 무음구간 제거: TTS 모델이 문장 끝에 최대 1초+ 무음 패딩을 남기는 경우가 있어
-    # (7/17 흠뻑쇼 스크립트 hook.mp3에서 1.12s 트레일링 무음 실측) 앞뒤 모두 트림
-    af_chain = (
+    # 무음구간 제거: TTS 모델이 문장 시작에 무음 패딩을 남기는 경우가 있어 앞쪽만 트림한다.
+    # 끝쪽 트림(reverse+silenceremove)은 제거함 — 7/21 "끝음 씹힘" 반복사고의 원인이었음:
+    # 어떤 임계값을 써도 단어 끝의 자연스러운 여운/약한 음절(예: "쾌적해요"의 "요")을 무음으로
+    # 오판해 잘라낼 위험이 있다. 끝에 무음이 살짝 남는 것(무해)이 발화가 잘리는 것(치명적)보다 낫다.
+    pre_af = (
         f"asetrate={pitched_rate},aresample={sr},"
         f"atempo={factor},"
-        f"silenceremove=start_periods=1:start_duration=0.05:start_threshold=-30dB:detection=peak,"
-        f"areverse,silenceremove=start_periods=1:start_duration=0.1:start_threshold=-30dB:detection=peak,areverse,"
-        f"loudnorm=I=-14:LRA=11:TP=-1"
+        f"silenceremove=start_periods=1:start_duration=0.05:start_threshold=-45dB:detection=peak"
     )
+    intermediate = output_mp3.with_name(output_mp3.stem + "_pre.wav")
+    cmd_pre = ["ffmpeg", "-y", "-i", str(input_wav), "-filter:a", pre_af, str(intermediate)]
+    r_pre = subprocess.run(cmd_pre, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r_pre.returncode != 0:
+        print(f"  전처리 실패: {(r_pre.stderr or '')[-500:]}")
+        return 0.0
+
+    # 라우드니스 2-패스 정규화 — 짧은 클립(우리 TTS 대부분 1~3초)은 싱글패스 loudnorm이
+    # 목표치를 못 맞추고 실측 -13~-15 LUFS로 나오는 문제 확인됨(7/21). 측정→적용 2단계로 정확히 맞춘다.
+    target_i, target_lra, target_tp = -9, 11, -1
+    cmd_measure = [
+        "ffmpeg", "-i", str(intermediate),
+        "-af", f"loudnorm=I={target_i}:LRA={target_lra}:TP={target_tp}:print_format=json",
+        "-f", "null", "-"
+    ]
+    r_measure = subprocess.run(cmd_measure, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    measured = None
+    try:
+        stderr_text = r_measure.stderr or ""
+        json_str = stderr_text[stderr_text.rindex("{"):stderr_text.rindex("}") + 1]
+        measured = _json.loads(json_str)
+    except (ValueError, _json.JSONDecodeError):
+        measured = None
+
+    if measured:
+        af_chain = (
+            f"loudnorm=I={target_i}:LRA={target_lra}:TP={target_tp}:"
+            f"measured_I={measured['input_i']}:measured_TP={measured['input_tp']}:"
+            f"measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}:"
+            f"linear=true"
+        )
+    else:
+        af_chain = f"loudnorm=I={target_i}:LRA={target_lra}:TP={target_tp}"  # 측정 실패 시 싱글패스 폴백
+
     cmd = [
-        "ffmpeg", "-y", "-i", str(input_wav),
+        "ffmpeg", "-y", "-i", str(intermediate),
         "-filter:a", af_chain,
         "-b:a", "192k",
         str(output_mp3)
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    intermediate.unlink(missing_ok=True)
     if r.returncode != 0:
-        print(f"  speedup FAIL: {r.stderr[:200]}")
+        print(f"  speedup FAIL: {(r.stderr or '')[:200]}")
         return 0.0
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(output_mp3)],
-        capture_output=True, text=True, timeout=10
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
     )
     dur = float(probe.stdout.strip()) if probe.returncode == 0 else 0.0
     print(f"  [{input_wav.stem}] pitch+{pitch_up:.3f} → {factor}x → loudnorm: {dur:.2f}s")
     return dur
+
+
+_whisper_model_cache = {}
+
+
+def _get_whisper_model(size: str = "medium"):
+    if size not in _whisper_model_cache:
+        import whisper
+        _whisper_model_cache[size] = whisper.load_model(size)
+    return _whisper_model_cache[size]
+
+
+def _verify_transcript(expected_text: str, transcript: str, sim_threshold: float = 0.7) -> tuple[bool, float, str]:
+    """전체 유사도 + 마지막 어절 인식 여부를 함께 확인 (7/21: 유사도만 보면 끝 단어 누락을 놓침)."""
+    import difflib
+    expected_clean = expected_text.replace(" ", "")
+    clean = transcript.replace(" ", "")
+    sim = difflib.SequenceMatcher(None, expected_clean, clean).ratio()
+    words = expected_text.split()
+    last_word = words[-1] if words else ""
+    last_word_clean = last_word.replace(" ", "")
+    core = last_word_clean[:max(2, len(last_word_clean) - 1)]
+    last_ok = (core in clean) if core else True
+    ok = sim >= sim_threshold and last_ok
+    reason = "" if ok else ("유사도부족" if sim < sim_threshold else f"끝어절('{last_word}') 인식실패")
+    return ok, sim, reason
+
+
+def generate_beat_verified(model, beat_id: str, text: str, output_mp3: Path,
+                            max_tries: int = 5, sim_threshold: float = 0.7,
+                            whisper_size: str = "medium") -> dict:
+    """generate_beat + speedup_beat을 실행하고 Whisper로 원문 대조, 불일치 시 재생성(최대 max_tries회).
+
+    나레이션 씹힘/끝음잘림(7/21 반복사고) 재발 방지용 표준 진입점.
+    새 상품 TTS 생성 시 이 함수를 쓸 것 — 별도 스크립트로 로직 재구현하지 말 것.
+    """
+    whisper_model = _get_whisper_model(whisper_size)
+    tmp_wav = output_mp3.with_name(f"{output_mp3.stem}_raw.wav")
+    last_sim, last_reason = 0.0, ""
+    for attempt in range(1, max_tries + 1):
+        try_mp3 = output_mp3.with_name(f"{output_mp3.stem}_try{attempt}.mp3")
+        generate_beat(model, beat_id, text, tmp_wav)
+        dur = speedup_beat(tmp_wav, try_mp3, SPEED_FACTOR)
+        tmp_wav.unlink(missing_ok=True)
+        result = whisper_model.transcribe(str(try_mp3), language="ko")
+        transcript = result["text"].strip()
+        ok, sim, reason = _verify_transcript(text, transcript, sim_threshold)
+        print(f"  [{beat_id}] 시도{attempt}: {dur:.3f}s | Whisper=\"{transcript}\" | 유사도={sim:.2f} | {'OK' if ok else 'FAIL:'+reason}")
+        if ok:
+            try_mp3.replace(output_mp3)
+            for a in range(1, max_tries + 1):
+                leftover = output_mp3.with_name(f"{output_mp3.stem}_try{a}.mp3")
+                if leftover.exists():
+                    leftover.unlink()
+            return {"id": beat_id, "duration": round(dur, 3), "attempts": attempt, "sim": round(sim, 2), "ok": True}
+        last_sim, last_reason = sim, reason
+        try_mp3.unlink(missing_ok=True)
+    print(f"  [{beat_id}] {max_tries}회 모두 실패 ({last_reason}) — 수동 확인 필요")
+    return {"id": beat_id, "duration": None, "attempts": max_tries, "sim": round(last_sim, 2), "ok": False}
 
 
 def generate_sfx_track(cues: list, total_duration: float, output_path: Path):
