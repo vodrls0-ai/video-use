@@ -8,10 +8,12 @@ generate_capcut.py — CapCut 드래프트 자동 생성 (pycapcut)
 경로: VIDEO_ROOT = 비디오/video/ 기준으로 상품 검색
 """
 
-import sys, json, os, tempfile, subprocess, shutil, copy, math, importlib
+import sys, json, os, re, tempfile, subprocess, shutil, copy, math, importlib
 import pycapcut as cc
 from pathlib import Path
 from capcut_feature_gate import analyze_spec, write_report
+
+_BANNED_ASSET_RE = re.compile(r"hstack|vstack|_vs_|side.?by.?side|split|비교합성|분할", re.IGNORECASE)
 
 def _resolve_ffmpeg() -> str:
     env = os.getenv("FFMPEG_PATH")
@@ -35,13 +37,23 @@ VIDEO_ROOT = HARNESS_DIR.parent.parent / "video"
 SANGPE_ROOT = Path(r"C:\nomal\자동화\상페자동화")
 CAPCUT_DIR = "C:/Users/user/AppData/Local/CapCut/User Data/Projects/com.lveditor.draft"
 
-def write_draft_identity(product: str) -> None:
-    draft_dir = Path(CAPCUT_DIR) / product
+
+def draft_name_for(product: str, spec: dict) -> str:
+    """CapCut 드래프트 폴더명. 한 상품에 여러 variant(v1/w1/w2...)가 있으면
+    variant별로 별도 폴더를 써야 서로 덮어쓰지 않는다 (product명만 쓰면
+    나중에 생성한 variant가 이전 variant의 드래프트를 rmtree로 지워버림)."""
+    safe = product.replace("/", "_")
+    variant = spec.get("script_approval", {}).get("selected_variant")
+    return f"{safe}_{variant}" if variant else safe
+
+
+def write_draft_identity(draft_name: str) -> None:
+    draft_dir = Path(CAPCUT_DIR) / draft_name
     meta_path = draft_dir / "draft_meta_info.json"
     if not meta_path.exists():
         return
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta["draft_name"] = product
+    meta["draft_name"] = draft_name
     meta["draft_fold_path"] = str(draft_dir)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=4), encoding="utf-8")
 
@@ -215,6 +227,19 @@ def load_spec(product: str) -> dict:
     spec["_spec_path"] = str(spec_path)
     spec["_product_dir"] = str(product_dir)
 
+    # 분할이미지(hstack/vstack/vs) 차단 — 릴스에 절대 사용 금지
+    blocked = []
+    for clip in spec.get("clips", []):
+        img = clip.get("image", "")
+        basename = os.path.basename(img)
+        if _BANNED_ASSET_RE.search(basename):
+            blocked.append(f"  clip {clip.get('id','?')}: {basename}")
+    if blocked:
+        print("[BLOCKED] 분할이미지(hstack/vstack/vs) 에셋 감지 — 단일 피사체로 교체 필수:")
+        for b in blocked:
+            print(b)
+        sys.exit(1)
+
     # narration 배열 → 클립 texts 자동 변환 (블루트 spec 호환)
     narration_list = spec.get("narration", [])
     if narration_list and isinstance(narration_list, list):
@@ -252,12 +277,18 @@ def load_spec(product: str) -> dict:
             texts = []
             keywords = {kw["word"]: kw.get("color", "#FFFFFF") for kw in nar.get("subtitle_keywords", [])}
             for chunk_text in chunks:
+                chunk_color = "#FFFFFF"
+                for kw_word, kw_color in keywords.items():
+                    if kw_word in chunk_text:
+                        chunk_color = kw_color
+                        break
                 texts.append({
                     "content": chunk_text,
                     "start_offset": t,
                     "end_offset": t + chunk_dur,
                     "duration": chunk_dur,
                     "position_y": nar.get("subtitle_position_y", 0.0),
+                    "color": chunk_color,
                 })
                 t += chunk_dur
             clip["texts"] = texts
@@ -370,17 +401,31 @@ def split_subtitle(text: str) -> list[str]:
     return [text]
 
 
+def _hex_to_rgb_float(hex_color: str) -> tuple[float, float, float]:
+    h = (hex_color or "#FFFFFF").lstrip("#")
+    if len(h) != 6:
+        return (1.0, 1.0, 1.0)
+    try:
+        r = int(h[0:2], 16) / 255.0
+        g = int(h[2:4], 16) / 255.0
+        b = int(h[4:6], 16) / 255.0
+        return (r, g, b)
+    except ValueError:
+        return (1.0, 1.0, 1.0)
+
+
 def make_text_seg(
     content: str,
     clip_start_us: int,
     window_start_offset: float,
     window_end_offset: float,
     position_y: float = 0.0,
+    color_hex: str = "#FFFFFF",
 ) -> cc.TextSegment:
     style = cc.TextStyle(
         size=13.0,
         bold=True,
-        color=(1.0, 1.0, 1.0),
+        color=_hex_to_rgb_float(color_hex),
         align=1,
         max_line_width=0.80,
     )
@@ -627,7 +672,7 @@ def write_chroma_key_manifest(product: str, product_dir: str, spec: dict):
     spec_manifest = spec_dir / "chroma_key_manifest.json"
     spec_manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    draft_dir = Path(CAPCUT_DIR) / product
+    draft_dir = Path(CAPCUT_DIR) / draft_name_for(product, spec)
     draft_manifest = draft_dir / "CHROMA_KEY_MANIFEST.json"
     draft_manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     draft_note = draft_dir / "CHROMA_KEY_APPLY.md"
@@ -654,7 +699,7 @@ def write_feature_gate_report(product: str, spec: dict, *, strict: bool = False)
     report = analyze_spec(spec, strict=strict)
     spec_dir = Path(spec.get("_spec_path", "")).parent
     write_report(report, spec_dir / "capcut_feature_gate_report.json")
-    draft_dir = Path(CAPCUT_DIR) / product
+    draft_dir = Path(CAPCUT_DIR) / draft_name_for(product, spec)
     if draft_dir.exists():
         write_report(report, draft_dir / "CAPCUT_FEATURE_GATE_REPORT.json")
     manual_count = len(report.get("manual_capcut", []))
@@ -672,9 +717,10 @@ def generate(product: str, spec: dict):
     w, h  = spec["resolution"]
     fps   = spec["fps"]
 
-    print(f"=== CapCut 생성: {product} ({len(clips)}컷 / {fps}fps) ===")
+    draft_name = draft_name_for(product, spec)
+    print(f"=== CapCut 생성: {draft_name} ({len(clips)}컷 / {fps}fps) ===")
 
-    tmp_dir   = tempfile.mkdtemp(prefix=f"capcut_{product[:8]}_")
+    tmp_dir   = tempfile.mkdtemp(prefix=f"capcut_{product.replace('/', '_')[:8]}_")
     mp4_paths = []
     print("\n[1/3] 이미지 -> mp4")
     for clip in clips:
@@ -693,12 +739,12 @@ def generate(product: str, spec: dict):
         print(f"  [{clip['section']}] {clip['duration']}s {crop_label}")
 
     print("\n[2/3] CapCut 프로젝트 생성")
-    existing = os.path.join(CAPCUT_DIR, product)
+    existing = os.path.join(CAPCUT_DIR, draft_name)
     if os.path.exists(existing):
         shutil.rmtree(existing)
 
     folder = cc.DraftFolder(CAPCUT_DIR)
-    script = folder.create_draft(product, w, h, fps=fps)
+    script = folder.create_draft(draft_name, w, h, fps=fps)
     script.add_track(cc.TrackType.video)
     script.add_track(cc.TrackType.text)
 
@@ -719,6 +765,7 @@ def generate(product: str, spec: dict):
                 "start_us": int(t_start * 1_000_000),
                 "dur_sec": t_dur,
                 "position_y": txt.get("position_y", 0.0),
+                "color": txt.get("color", "#FFFFFF"),
             })
         text_timeline_sec += clip_dur
 
@@ -822,6 +869,7 @@ def generate(product: str, spec: dict):
         safe_dur = max(0.05, at["dur_sec"] - 0.002)
         tseg = make_text_seg(
             at["content"], at["start_us"], 0.0, safe_dur, at["position_y"],
+            color_hex=at.get("color", "#FFFFFF"),
         )
         if spec.get("config", {}).get("text_animation", True):
             tseg.add_animation(cc.TextIntro.渐显, duration=150_000)
@@ -845,9 +893,9 @@ def generate(product: str, spec: dict):
             t += int(clip["duration"] * 1_000_000)
 
         if narration_clips:
-            script.add_track(cc.TrackType.audio)
             placed = 0
             sorted_nars = sorted(narration_clips.items(), key=lambda x: x[1])
+            segments_to_add = []
             for idx_n, (nid, start_us_val) in enumerate(sorted_nars):
                 mp3_path = tts_dir / f"{nid}.mp3"
                 if not mp3_path.exists():
@@ -859,10 +907,13 @@ def generate(product: str, spec: dict):
                     max_dur = sorted_nars[idx_n + 1][1] - start_us_val
                     audio_dur = min(audio_dur, max_dur)
                 audio_dur = max(audio_dur, 100_000)
-                script.add_segment(cc.AudioSegment(mat, cc.Timerange(start_us_val, audio_dur)))
+                segments_to_add.append((mat, start_us_val, audio_dur, nid))
                 placed += 1
-                print(f"  TTS: [{nid}] @ {start_us_val/1_000_000:.2f}s ({audio_dur/1_000_000:.2f}s)")
             if placed > 0:
+                script.add_track(cc.TrackType.audio)
+                for mat, start_us_val, audio_dur, nid in segments_to_add:
+                    script.add_segment(cc.AudioSegment(mat, cc.Timerange(start_us_val, audio_dur)))
+                    print(f"  TTS: [{nid}] @ {start_us_val/1_000_000:.2f}s ({audio_dur/1_000_000:.2f}s)")
                 tts_placed = True
                 print(f"  TTS {placed}라인 배치 완료")
 
@@ -950,11 +1001,11 @@ def generate(product: str, spec: dict):
     write_feature_gate_report(product, spec, strict=False)
     write_chroma_key_manifest(product, product_dir, spec)
 
-    draft_json = os.path.join(CAPCUT_DIR, product, "draft_content.json")
+    draft_json = os.path.join(CAPCUT_DIR, draft_name, "draft_content.json")
     if os.path.exists(draft_json):
         postprocess_draft(draft_json, spec)
-    write_draft_identity(product)
-    print(f"\n[3/3] 완료: {product} / {cursor_us/1_000_000:.1f}초")
+    write_draft_identity(draft_name)
+    print(f"\n[3/3] 완료: {draft_name} / {cursor_us/1_000_000:.1f}초")
     print(f"  mp4: {tmp_dir}")
     print("CapCut 재시작 후 확인하세요.")
 
