@@ -8,7 +8,7 @@ generate_capcut.py — CapCut 드래프트 자동 생성 (pycapcut)
 경로: VIDEO_ROOT = 비디오/video/ 기준으로 상품 검색
 """
 
-import sys, json, os, re, tempfile, subprocess, shutil, copy, math, importlib
+import sys, json, os, re, tempfile, subprocess, shutil, copy, math, importlib, difflib, time
 import pycapcut as cc
 from pathlib import Path
 from capcut_feature_gate import analyze_spec, write_report
@@ -34,6 +34,26 @@ def _resolve_ffmpeg() -> str:
 FFMPEG = _resolve_ffmpeg()
 HARNESS_DIR = Path(__file__).absolute().parent
 VIDEO_ROOT = HARNESS_DIR.parent.parent / "video"
+
+# --variant: reels/ 하위 변형 폴더(blute/dohu/baido/...) 지원.
+# gen_qwen3_tts.py는 이미 --variant를 받는데 이 파일은 reels/ 직속만 봐서
+# 한 상품에 포맷별 대본이 여러 개일 때 spec/TTS 경로가 어긋났다 (2026-08-19 제이엠엘에서 발견).
+# 빈 값이면 기존 동작과 100% 동일.
+def _parse_variant(argv):
+    for i, a in enumerate(argv):
+        if a == "--variant" and i + 1 < len(argv):
+            return argv[i + 1].strip("/\\")
+        if a.startswith("--variant="):
+            return a.split("=", 1)[1].strip("/\\")
+    return ""
+
+VARIANT = _parse_variant(sys.argv)
+
+
+def _spec_subs():
+    """capcut_spec.json 탐색 순서. VARIANT가 있으면 reels/<variant>가 최우선."""
+    base = ["reels", "meta", "edit", ""]
+    return ([os.path.join("reels", VARIANT)] + base) if VARIANT else base
 SANGPE_ROOT = Path(r"C:\nomal\자동화\상페자동화")
 CAPCUT_DIR = "C:/Users/user/AppData/Local/CapCut/User Data/Projects/com.lveditor.draft"
 
@@ -48,6 +68,13 @@ def draft_name_for(product: str, spec: dict) -> str:
 
 
 def write_draft_identity(draft_name: str) -> None:
+    """드래프트 메타 정보를 채운다.
+
+    2026-09-05: --force-overwrite로 재생성한 드래프트 3건(GM5911/웨인/인디오301)이
+    CapCut에서 안 열리는 사고 발생. 원인: pycapcut의 create_draft()가 남긴
+    draft_meta_info.json에 tm_draft_create/tm_draft_modified/draft_root_path가
+    비어있었다(신규 생성 시에는 채워지는데 rmtree 후 재생성 시 누락되는 경로 확인됨).
+    이 값이 없으면 CapCut이 드래프트를 열지 못한다. 매번 강제로 채워 재발을 막는다."""
     draft_dir = Path(CAPCUT_DIR) / draft_name
     meta_path = draft_dir / "draft_meta_info.json"
     if not meta_path.exists():
@@ -55,6 +82,12 @@ def write_draft_identity(draft_name: str) -> None:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["draft_name"] = draft_name
     meta["draft_fold_path"] = str(draft_dir)
+    if not meta.get("draft_root_path"):
+        meta["draft_root_path"] = CAPCUT_DIR
+    now_us = int(time.time() * 1_000_000)
+    if not meta.get("tm_draft_create"):
+        meta["tm_draft_create"] = now_us
+    meta["tm_draft_modified"] = now_us
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=4), encoding="utf-8")
 
 MOTION_PRESETS = {
@@ -195,6 +228,10 @@ def _find_product_dir(product: str) -> Path | None:
 
 def _find_capcut_spec(product_dir: Path) -> Path | None:
     """상품 폴더 안에서 capcut_spec.json 검색. reels/ → edit/v*/ 순."""
+    if VARIANT:
+        v = product_dir / "reels" / VARIANT / "capcut_spec.json"
+        if v.exists():
+            return v
     reels = product_dir / "reels" / "capcut_spec.json"
     if reels.exists():
         return reels
@@ -255,6 +292,9 @@ def load_spec(product: str) -> dict:
             if nid and nid not in first_clip_for_nar:
                 first_clip_for_nar[nid] = ci
         injected = 0
+        aligned = 0
+        fallback_ids = []
+        word_timings = _load_word_timings(spec.get("_product_dir", ""))
         for nid, ci in first_clip_for_nar.items():
             clip = clips_list[ci]
             if clip.get("texts"):
@@ -269,14 +309,22 @@ def load_spec(product: str) -> dict:
             if not chunks:
                 continue
             clip_dur = clip.get("duration", 1.0)
-            total_nar_dur = nar.get("tts_duration", clip_dur)
             nar_clips = [j for j, c in enumerate(clips_list) if c.get("narration_id") == nid]
             total_slot_dur = sum(clips_list[j].get("duration", 0) for j in nar_clips)
-            chunk_dur = total_slot_dur / len(chunks) if chunks else clip_dur
-            t = 0.0
+
+            # 1순위: Whisper 단어 타임코드로 실제 발화 시점에 정렬.
+            # 2순위(폴백): 균등분할 — 단어 타임코드가 없거나 정렬이 신뢰도 미달일 때만.
+            spans = align_chunks_to_words(chunks, word_timings.get(nid, []), total_slot_dur)
+            if spans:
+                aligned += 1
+            else:
+                chunk_dur = total_slot_dur / len(chunks) if chunks else clip_dur
+                spans = [(i * chunk_dur, (i + 1) * chunk_dur) for i in range(len(chunks))]
+                fallback_ids.append(nid)
+
             texts = []
             keywords = {kw["word"]: kw.get("color", "#FFFFFF") for kw in nar.get("subtitle_keywords", [])}
-            for chunk_text in chunks:
+            for chunk_text, (st, en) in zip(chunks, spans):
                 chunk_color = "#FFFFFF"
                 for kw_word, kw_color in keywords.items():
                     if kw_word in chunk_text:
@@ -284,17 +332,21 @@ def load_spec(product: str) -> dict:
                         break
                 texts.append({
                     "content": chunk_text,
-                    "start_offset": t,
-                    "end_offset": t + chunk_dur,
-                    "duration": chunk_dur,
+                    "start_offset": st,
+                    "end_offset": en,
+                    "duration": round(en - st, 3),
                     "position_y": nar.get("subtitle_position_y", 0.0),
                     "color": chunk_color,
                 })
-                t += chunk_dur
             clip["texts"] = texts
             injected += 1
         if injected:
-            print(f"  [자막 변환] narration → texts {injected}개 주입")
+            mode = f"단어싱크 {aligned}/{injected}"
+            if fallback_ids:
+                mode += f", 균등분할 폴백 {fallback_ids}"
+            print(f"  [자막 변환] narration → texts {injected}개 주입 ({mode})")
+            if fallback_ids and not word_timings:
+                print("  [자막싱크] tts/word_timings.json 없음 — TTS를 gen_qwen3_tts.py로 재생성하면 단어 단위로 붙는다")
 
     spec["_text_clips"] = copy.deepcopy(spec.get("clips", []))
 
@@ -314,6 +366,143 @@ def load_spec(product: str) -> dict:
     else:
         print(f"  [auto_split OFF] {len(spec.get('clips', []))}컷 그대로 (자막↔TTS 정확 싱크)")
     return spec
+
+
+_SUB_NORM_RE = re.compile(r"[\s,.\?!~…·\-'\"]+")
+
+
+def _load_word_timings(product_dir: str) -> dict:
+    """tts/word_timings.json 로드 (gen_qwen3_tts.py가 TTS 생성 시 자동 저장).
+    없으면 {} — 호출부가 균등분할로 폴백한다."""
+    for sub in _spec_subs():
+        cand = os.path.join(product_dir, sub, "tts", "word_timings.json") if sub \
+            else os.path.join(product_dir, "tts", "word_timings.json")
+        if os.path.isfile(cand):
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"  [자막싱크] word_timings.json 읽기 실패({e}) — 균등분할로 폴백")
+                return {}
+    return {}
+
+
+def align_chunks_to_words(chunks: list, words: list, total_dur: float):
+    """자막 청크를 Whisper 단어 타임코드에 정렬해 [(start, end), ...] 반환. 실패하면 None.
+
+    왜 필요한가: 기존에는 chunk_dur = 구간길이/청크수 로 균등분할해서, 실제 발화 속도와
+    자막이 어긋났다(사용자가 매 편 수동 보정하던 지점, 2026-08-19).
+
+    방식: 전사 단어를 문자 단위로 펼쳐 각 문자에 시간을 보간한 뒤, 자막 문자열과
+    difflib로 정렬한다. Whisper 표기가 대본과 달라도(숏 기본 롱→쇼키본롱,
+    이만구천팔백원→29,800원) 문자 정렬이라 앵커가 잡히고, 못 잡은 구간은 앞뒤로 보간한다.
+    """
+    if not words or not chunks:
+        return None
+
+    def norm(s: str) -> str:
+        return _SUB_NORM_RE.sub("", str(s))
+
+    # 전사: 문자별 (start, end)
+    w_chars, w_times = [], []
+    for wd in words:
+        tok = norm(wd.get("w", ""))
+        if not tok:
+            continue
+        try:
+            s, e = float(wd["s"]), float(wd["e"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if e < s:
+            s, e = e, s
+        n = len(tok)
+        for i, ch in enumerate(tok):
+            w_chars.append(ch)
+            w_times.append((s + (e - s) * i / n, s + (e - s) * (i + 1) / n))
+    if not w_chars:
+        return None
+
+    # 자막: 문자열 + 청크 경계
+    s_chars, bounds = [], []
+    for c in chunks:
+        s_chars.extend(norm(c))
+        bounds.append(len(s_chars))
+    if not s_chars:
+        return None
+
+    sm = difflib.SequenceMatcher(None, s_chars, w_chars, autojunk=False)
+    s2w = {}
+    for a, b, size in sm.get_matching_blocks():
+        for k in range(size):
+            s2w[a + k] = b + k
+    # 앵커가 절반도 안 잡히면 정렬을 신뢰하지 않는다
+    if len(s2w) < len(s_chars) * 0.5:
+        return None
+
+    n = len(s_chars)
+
+    def boundary_time(idx):
+        """자막 문자열의 idx 위치가 발화되는 시각.
+
+        매칭이 없는 문자는 건너뛰지 않고 앞뒤 앵커 사이를 문자 수에 비례해 보간한다.
+        건너뛰면 청크 첫 글자가 ASR과 다를 때(숏 기본 롱→쇼키본롱, 뒷밴딩→뒤밴딩,
+        5XL→OXL) 경계가 최대 0.24s 밀린다."""
+        if idx <= 0:
+            return 0.0
+        if idx >= n:
+            return total_dur
+        if idx in s2w:
+            return w_times[s2w[idx]][0]
+        prev = next((k for k in range(idx - 1, -1, -1) if k in s2w), None)
+        nxt = next((k for k in range(idx + 1, n) if k in s2w), None)
+        if prev is None and nxt is None:
+            return None
+        i0, t0 = (prev, w_times[s2w[prev]][1]) if prev is not None else (-1, 0.0)
+        i1, t1 = (nxt, w_times[s2w[nxt]][0]) if nxt is not None else (n, total_dur)
+        span = i1 - i0 - 1
+        if span <= 0:
+            return t0
+        return t0 + (t1 - t0) * ((idx - i0 - 1) / span)
+
+    starts = [boundary_time(0)] + [boundary_time(b) for b in bounds[:-1]]
+    spans = []
+    for i, st in enumerate(starts):
+        en = starts[i + 1] if i + 1 < len(starts) else total_dur
+        spans.append([st, en])
+    spans[0][0] = 0.0
+    spans[-1][1] = total_dur
+
+    if any(s is None or e is None for s, e in spans):
+        return None
+
+    # 최소 표시시간 보장.
+    # 자막이 나레이션보다 잘게 쪼개져 있으면(청크 2개가 전사 단어 1개에 매핑) 경계가 한 점으로
+    # 몰려 길이 0짜리가 생긴다. 예전에는 이때 전체를 폴백시켰는데, 매칭률 90%대인 정렬까지
+    # 통째로 버려졌다(제이엠엘 4개 변형). 이제 그 자막만 최소 길이로 밀어서 살린다.
+    MIN = 0.15
+    n = len(spans)
+    for i in range(n):                       # 앞 → 뒤
+        if spans[i][1] - spans[i][0] < MIN:
+            spans[i][1] = spans[i][0] + MIN
+        if i + 1 < n and spans[i + 1][0] < spans[i][1]:
+            spans[i + 1][0] = spans[i][1]
+    if spans[-1][1] > total_dur:             # 끝을 넘겼으면 뒤 → 앞으로 되민다
+        spans[-1][1] = total_dur
+        for i in range(n - 1, 0, -1):
+            if spans[i][1] - spans[i][0] < MIN:
+                spans[i][0] = spans[i][1] - MIN
+            if spans[i - 1][1] > spans[i][0]:
+                spans[i - 1][1] = spans[i][0]
+
+    # 단조 증가 + 구간 내. 여기서도 깨지면(자막이 나레이션과 근본적으로 다름) 폴백.
+    prev = -1e-9
+    for s, e in spans:
+        if not (prev - 1e-6 <= s < e <= total_dur + 1e-6):
+            return None
+        prev = e
+    spans[0][0] = max(0.0, spans[0][0])
+    spans[-1][1] = total_dur
+    return [(round(s, 3), round(e, 3)) for s, e in spans]
 
 
 def build_video_filter(crop: str = "full",
@@ -614,11 +803,65 @@ def preview(product: str, spec: dict):
     print(f"확인 후 crop_y 수정 → 다시 --preview 또는 --generate 실행")
 
 
+def _read_marker_sha256(marker_path: str) -> str:
+    """마커 파일에서 spec_sha256 값을 읽는다."""
+    try:
+        with open(marker_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("spec_sha256:"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _current_spec_sha256(product_dir: str) -> str:
+    """현재 capcut_spec.json의 sha256을 계산."""
+    import hashlib
+    for sub in _spec_subs():
+        candidate = os.path.join(product_dir, sub, "capcut_spec.json") if sub else os.path.join(product_dir, "capcut_spec.json")
+        if os.path.isfile(candidate):
+            with open(candidate, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+    return ""
+
+
+def _write_draft_done_marker(product_dir: str, spec: dict, draft_name: str):
+    """드래프트 완료 마커 .draft_done 생성 — 완주율 관측용 (Phase 3)."""
+    from datetime import datetime, timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    spec_used = ""
+    for sub in _spec_subs():
+        candidate = os.path.join(product_dir, sub, "capcut_spec.json") if sub else os.path.join(product_dir, "capcut_spec.json")
+        if os.path.isfile(candidate):
+            spec_used = os.path.relpath(candidate, product_dir)
+            break
+    marker_path = os.path.join(product_dir, ".draft_done")
+    spec_hash = _current_spec_sha256(product_dir)
+    with open(marker_path, "w", encoding="utf-8") as f:
+        f.write(f"draft_name: {draft_name}\n")
+        f.write(f"spec_used: {spec_used}\n")
+        f.write(f"spec_sha256: {spec_hash}\n")
+        f.write(f"clips: {len(spec.get('clips', []))}\n")
+        f.write(f"created_at: {datetime.now(kst).isoformat()}\n")
+    print(f"  .draft_done 마커 생성")
+
+
 def check_validation_gate(product: str, product_dir: str):
-    for sub in ["reels", "edit"]:
+    for sub in ([os.path.join("reels", VARIANT)] if VARIANT else []) + ["reels", "edit"]:
         marker = os.path.join(product_dir, sub, ".validated")
         if os.path.exists(marker):
-            print(f"[검증통과] .validated 마커 확인됨")
+            saved = _read_marker_sha256(marker)
+            current = _current_spec_sha256(product_dir)
+            if saved and current and saved != current:
+                print("=" * 60)
+                print("  [BLOCKED] spec이 검증 이후 변경됨")
+                print(f"  마커 sha256: {saved[:16]}...")
+                print(f"  현재 sha256: {current[:16]}...")
+                print(f"  validate_reels.py {product} 를 다시 실행하세요.")
+                print("=" * 60)
+                sys.exit(1)
+            print(f"[검증통과] .validated 마커 확인됨" + (" (sha256 일치)" if saved else ""))
             return True
     if os.path.isdir(os.path.join(product_dir, "edit")):
         for v in sorted(os.listdir(os.path.join(product_dir, "edit")), reverse=True):
@@ -709,7 +952,7 @@ def write_feature_gate_report(product: str, spec: dict, *, strict: bool = False)
     print(f"  CapCut feature gate: {report['status']} (manual={manual_count}, sample_required={sample_count}, warnings={warning_count}, errors={error_count})")
 
 
-def generate(product: str, spec: dict):
+def generate(product: str, spec: dict, force_overwrite: bool = False, tts_only: bool = False):
     product_dir = spec.get("_product_dir", "")
     check_validation_gate(product, product_dir)
 
@@ -722,25 +965,43 @@ def generate(product: str, spec: dict):
 
     tmp_dir   = tempfile.mkdtemp(prefix=f"capcut_{product.replace('/', '_')[:8]}_")
     mp4_paths = []
-    print("\n[1/3] 이미지 -> mp4")
-    for clip in clips:
-        out = os.path.join(tmp_dir, f"clip_{clip['id']:02d}.mp4")
-        image_to_mp4(clip["image"], out, clip["duration"],
-                     clip.get("crop", "full"),
-                     clip.get("crop_y"), clip.get("crop_scale"))
-        mp4_paths.append(out)
-        cy = clip.get('crop_y')
-        if cy is not None:
-            crop_label = f"crop_y={cy} scale={clip.get('crop_scale')}"
-        elif clip.get("crop", "full") in ("contain", "fit"):
-            crop_label = "9:16 contain"
-        else:
-            crop_label = "9:16 cover"
-        print(f"  [{clip['section']}] {clip['duration']}s {crop_label}")
+    if tts_only:
+        print("\n[1/3] TTS-only mode - skip image/video conversion (placeholder)")
+        total_dur = sum(c["duration"] for c in clips)
+        placeholder = os.path.join(tmp_dir, "placeholder_black.mp4")
+        subprocess.run([
+            FFMPEG, "-y", "-f", "lavfi", "-i", f"color=black:s={w}x{h}:r={fps}",
+            "-t", str(round(total_dur + 0.5, 3)),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", placeholder,
+        ], capture_output=True, check=True)
+        mp4_paths = [placeholder] * len(clips)
+        print(f"  placeholder {total_dur:.1f}s - replace clips in CapCut")
+    else:
+        print("\n[1/3] 이미지 -> mp4")
+        for clip in clips:
+            out = os.path.join(tmp_dir, f"clip_{clip['id']:02d}.mp4")
+            image_to_mp4(clip["image"], out, clip["duration"],
+                         clip.get("crop", "full"),
+                         clip.get("crop_y"), clip.get("crop_scale"))
+            mp4_paths.append(out)
+            cy = clip.get('crop_y')
+            if cy is not None:
+                crop_label = f"crop_y={cy} scale={clip.get('crop_scale')}"
+            elif clip.get("crop", "full") in ("contain", "fit"):
+                crop_label = "9:16 contain"
+            else:
+                crop_label = "9:16 cover"
+            print(f"  [{clip['section']}] {clip['duration']}s {crop_label}")
 
     print("\n[2/3] CapCut 프로젝트 생성")
     existing = os.path.join(CAPCUT_DIR, draft_name)
     if os.path.exists(existing):
+        if not force_overwrite:
+            print("=" * 60)
+            print(f"  [BLOCKED] 기존 드래프트 존재: {draft_name}")
+            print("  기존 편집이 날아갑니다. --force-overwrite 로 재실행하세요.")
+            print("=" * 60)
+            sys.exit(1)
         shutil.rmtree(existing)
 
     folder = cc.DraftFolder(CAPCUT_DIR)
@@ -791,12 +1052,13 @@ def generate(product: str, spec: dict):
         if trans:
             seg.add_transition(trans, duration=300_000)
 
+        effects_enabled = not spec.get("config", {}).get("disable_effects", False)
         custom_effect = clip.get("effect")
-        if custom_effect:
+        if effects_enabled and custom_effect:
             eff_attr = getattr(cc.VideoSceneEffectType, custom_effect, None)
             if eff_attr:
                 seg.add_effect(eff_attr)
-        else:
+        elif effects_enabled:
             effect_pool = SECTION_EFFECT_MAP.get(sec_key, [])
             if effect_pool:
                 eff = effect_pool[i % len(effect_pool)]
@@ -950,7 +1212,11 @@ def generate(product: str, spec: dict):
             tts_placed = True
 
     if not tts_placed:
-        print("  [경고] TTS 파일 없음 - CapCut에서 수동 삽입 필요")
+        print("=" * 60)
+        print("  [BLOCKED] TTS 파일 없음 — 드래프트 생성 중단")
+        print("  gen_qwen3_tts.py 를 먼저 실행하세요.")
+        print("=" * 60)
+        sys.exit(1)
 
     bgm_path = HARNESS_DIR / "assets" / "bgm_common.mp3"
     if bgm_path.exists():
@@ -1005,6 +1271,9 @@ def generate(product: str, spec: dict):
     if os.path.exists(draft_json):
         postprocess_draft(draft_json, spec)
     write_draft_identity(draft_name)
+
+    _write_draft_done_marker(product_dir, spec, draft_name)
+
     print(f"\n[3/3] 완료: {draft_name} / {cursor_us/1_000_000:.1f}초")
     print(f"  mp4: {tmp_dir}")
     print("CapCut 재시작 후 확인하세요.")
@@ -1013,17 +1282,29 @@ def generate(product: str, spec: dict):
 def main():
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python generate_capcut.py {product} --preview   # 크롭 검수")
-        print("  python generate_capcut.py {product} --generate  # CapCut 생성")
-        print("  python generate_capcut.py {product}             # 기본 = preview")
+        print("  python generate_capcut.py {product} --preview              # 크롭 검수")
+        print("  python generate_capcut.py {product} --generate             # CapCut 생성")
+        print("  python generate_capcut.py {product} --generate --force-overwrite  # 기존 드래프트 덮어쓰기")
+        print("  python generate_capcut.py {product} --generate --tts-only         # TTS+자막만 (영상 직접교체)")
+        print("  python generate_capcut.py {product}                        # 기본 = preview")
         sys.exit(1)
 
     product = sys.argv[1]
-    mode    = sys.argv[2] if len(sys.argv) > 2 else "--preview"
-    spec    = load_spec(product)
+    args_rest = sys.argv[2:]
+    mode = "--preview"
+    force_overwrite = False
+    tts_only = False
+    for a in args_rest:
+        if a == "--generate":
+            mode = a
+        elif a == "--force-overwrite":
+            force_overwrite = True
+        elif a == "--tts-only":
+            tts_only = True
+    spec = load_spec(product)
 
     if mode == "--generate":
-        generate(product, spec)
+        generate(product, spec, force_overwrite=force_overwrite, tts_only=tts_only)
     else:
         preview(product, spec)
 
