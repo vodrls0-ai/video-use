@@ -88,3 +88,27 @@ def check_sentence_length(beats: list[dict], warnings: list, max_len: int = SENT
         for s in _sentences(t):
             if len(s) > max_len:
                 warnings.append(f"[문장길이] {bid} '{s[:20]}…' {len(s)}자 — {max_len}자 초과, TTS 호흡 끊기 권장")
+
+
+# ── G3/G4 말맛 출처 ────────────────────────────────────────
+TONE_SOURCE_FIELDS = ("brand", "source_ref", "imported_function", "applied_line_ids")
+
+
+def check_tone_source(story_context: dict, beats: list[dict], errors: list, warnings: list, *, strict: bool):
+    src = (story_context or {}).get("script_tone_source")
+    if not isinstance(src, dict) or not src:
+        _emit(strict,
+              "[말맛출처누락] story_context.script_tone_source 없음 — "
+              "어느 브랜드 워싱마스터의 어떤 화법 기능을 어느 줄에 썼는지 기록 필수(CONVERSION_CARD §1 copy_bank_routing)",
+              errors, warnings)
+        return
+    missing = [f for f in TONE_SOURCE_FIELDS if not src.get(f)]
+    if missing:
+        _emit(strict, f"[말맛출처불완전] script_tone_source 비어있는 필드: {', '.join(missing)}", errors, warnings)
+        return
+    ids = {str(b.get("id")) for b in beats or []}
+    bad = [lid for lid in src.get("applied_line_ids", []) if str(lid) not in ids]
+    if bad:
+        _emit(strict,
+              f"[말맛출처연결] applied_line_ids {bad} 가 beats[].id에 없음 — 실제 적용 줄과 연결해야 함",
+              errors, warnings)

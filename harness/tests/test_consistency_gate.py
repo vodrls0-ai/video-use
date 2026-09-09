@@ -59,3 +59,47 @@ def test_g2_long_sentence_warns():
     errors, warnings = [], []
     cg.check_sentence_length(beats, warnings)
     assert any("[문장길이]" in w for w in warnings)
+
+
+# ── Task 3: G3/G4 말맛 출처 ───────────────────────────────
+def _ctx(**over):
+    base = {
+        "target_customer": "t", "desired_change": "d", "buying_barrier": "b", "value_promise": "v",
+        "script_tone_source": {
+            "brand": "바이도",
+            "source_ref": "벤치마크/메타/바이도/바이도_워싱마스터.md#F-02",
+            "imported_function": "체형양극 훅",
+            "applied_line_ids": ["n01"],
+        },
+    }
+    base.update(over)
+    return base
+
+
+def test_g3_missing_tone_source_fails():
+    ctx = _ctx()
+    del ctx["script_tone_source"]
+    errors, warnings = [], []
+    cg.check_tone_source(ctx, _beats("a", "b"), errors, warnings, strict=True)
+    assert any("[말맛출처누락]" in e for e in errors)
+
+
+def test_g3_partial_tone_source_fails():
+    ctx = _ctx(script_tone_source={"brand": "바이도"})
+    errors, warnings = [], []
+    cg.check_tone_source(ctx, _beats("a", "b"), errors, warnings, strict=True)
+    assert any("[말맛출처불완전]" in e and "source_ref" in e for e in errors)
+
+
+def test_g4_unknown_line_id_fails():
+    ctx = _ctx()
+    ctx["script_tone_source"]["applied_line_ids"] = ["n99"]
+    errors, warnings = [], []
+    cg.check_tone_source(ctx, _beats("a", "b"), errors, warnings, strict=True)
+    assert any("[말맛출처연결]" in e and "n99" in e for e in errors)
+
+
+def test_g3_g4_pass():
+    errors, warnings = [], []
+    cg.check_tone_source(_ctx(), _beats("a", "b"), errors, warnings, strict=True)
+    assert errors == [] and warnings == []
