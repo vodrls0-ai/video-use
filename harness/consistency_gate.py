@@ -237,13 +237,19 @@ def _build_cta_index(video_root: str, index_path: str) -> dict:
     return index
 
 
+_INDEX_CACHE: dict[tuple[str, str], dict] = {}  # 프로세스 내 재사용 — 회귀 도구가 139개 대본에 video/ 전수 walk를 반복하지 않게
+
+
 def check_cta_duplicates(beats: list[dict], warnings: list, *, video_root: str | None = None,
                          index_path: str | None = None, current_path: str | None = None, min_count: int = 3):
     mine = [normalize_cta(b.get("narration", "")) for b in cta_beats(beats)]
     mine = [m for m in mine if m and m != normalize_cta(CTA_SLOT)]
     if not mine:
         return
-    index = _build_cta_index(video_root or str(VIDEO_ROOT), index_path or str(CTA_INDEX_PATH))
+    key = (video_root or str(VIDEO_ROOT), index_path or str(CTA_INDEX_PATH))
+    if key not in _INDEX_CACHE:
+        _INDEX_CACHE[key] = _build_cta_index(*key)
+    index = _INDEX_CACHE[key]
     for cta in mine:
         others = [p for p, v in index.items() if v.get("cta") == cta and p != current_path]
         if len(others) >= min_count:
