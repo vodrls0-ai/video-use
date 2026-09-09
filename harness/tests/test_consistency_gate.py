@@ -103,3 +103,33 @@ def test_g3_g4_pass():
     errors, warnings = [], []
     cg.check_tone_source(_ctx(), _beats("a", "b"), errors, warnings, strict=True)
     assert errors == [] and warnings == []
+
+
+# ── Task 4: G5 브랜드 시그니처 ─────────────────────────────
+def _reg(tmp_path, data):
+    reg = tmp_path / "brand_signatures.json"
+    reg.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return str(reg)
+
+
+def test_g5_signature_missing_fails(tmp_path):
+    reg = _reg(tmp_path, {"바이도": {"markers": ["심지어", "게다가"], "source": "x", "built_at": "2026-09-09"}})
+    beats = _beats("다리 두껍든 얇든 예뻐요", "한장 이만구천팔백원이에요")
+    errors, warnings = [], []
+    cg.check_brand_signature("바이도", beats, errors, warnings, strict=True, registry_path=reg)
+    assert any("[말맛시그니처]" in e for e in errors)
+
+
+def test_g5_signature_present_passes(tmp_path):
+    reg = _reg(tmp_path, {"바이도": {"markers": ["심지어", "게다가"], "source": "x", "built_at": "2026-09-09"}})
+    beats = _beats("다리 두껍든 얇든 예뻐요", "심지어 밴딩이라 편해")
+    errors, warnings = [], []
+    cg.check_brand_signature("바이도", beats, errors, warnings, strict=True, registry_path=reg)
+    assert errors == []
+
+
+def test_g5_unregistered_brand_warns_only(tmp_path):
+    reg = _reg(tmp_path, {})
+    errors, warnings = [], []
+    cg.check_brand_signature("짬뽕", _beats("a"), errors, warnings, strict=True, registry_path=reg)
+    assert errors == [] and any("[시그니처미등록]" in w for w in warnings)

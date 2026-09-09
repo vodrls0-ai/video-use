@@ -112,3 +112,34 @@ def check_tone_source(story_context: dict, beats: list[dict], errors: list, warn
         _emit(strict,
               f"[말맛출처연결] applied_line_ids {bad} 가 beats[].id에 없음 — 실제 적용 줄과 연결해야 함",
               errors, warnings)
+
+
+# ── G5 브랜드 시그니처 ─────────────────────────────────────
+def load_signatures(registry_path: str | None = None) -> dict:
+    p = Path(registry_path) if registry_path else SIGNATURES_PATH
+    if not p.exists():
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def check_brand_signature(brand: str, beats: list[dict], errors: list, warnings: list, *, strict: bool,
+                          registry_path: str | None = None):
+    if not brand:
+        return
+    registry = load_signatures(registry_path)
+    entry = registry.get(brand)
+    if not entry or not entry.get("markers"):
+        warnings.append(f"[시그니처미등록] '{brand}' 가 templates/brand_signatures.json에 없음 — "
+                        f"python tools/build_brand_signatures.py 실행 후 재검증")
+        return
+    full = " ".join(t for _, t in beat_texts(beats))
+    found = [m for m in entry["markers"] if m in full]
+    if not found:
+        _emit(strict,
+              f"[말맛시그니처] '{brand}' 시그니처 마커 0개 사용 (요구 중 하나: {entry['markers'][:5]}) — "
+              f"출처만 적고 말맛은 안 가져온 상태",
+              errors, warnings)
