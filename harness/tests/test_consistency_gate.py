@@ -133,3 +133,35 @@ def test_g5_unregistered_brand_warns_only(tmp_path):
     errors, warnings = [], []
     cg.check_brand_signature("짬뽕", _beats("a"), errors, warnings, strict=True, registry_path=reg)
     assert errors == [] and any("[시그니처미등록]" in w for w in warnings)
+
+
+# ── Task 5: G6/G7 TARGET·CTA 비트 + G10 evidence ──────────
+def test_g6_no_target_beat_fails():
+    beats = [{"id": "usp1", "narration": "a", "evidence": "e", "conversion_role": "V↑"},
+             {"id": "cta", "narration": "b", "evidence": "e", "conversion_role": "CTA"}]
+    errors, warnings = [], []
+    cg.check_target_and_cta_beats(beats, errors, warnings, strict=True)
+    assert any("[TARGET누락]" in e for e in errors)
+
+
+def test_g7_no_cta_beat_fails():
+    beats = [{"id": "opening", "narration": "a", "evidence": "e", "conversion_role": "TARGET"},
+             {"id": "usp1", "narration": "b", "evidence": "e", "conversion_role": "V↑"}]
+    errors, warnings = [], []
+    cg.check_target_and_cta_beats(beats, errors, warnings, strict=True)
+    assert any("[CTA누락]" in e for e in errors)
+
+
+def test_g6_g7_pass_with_cta_id_only():
+    beats = [{"id": "opening", "narration": "a", "evidence": "e", "conversion_role": "TARGET"},
+             {"id": "cta", "narration": "b", "evidence": "e", "conversion_role": "R↓"}]
+    errors, warnings = [], []
+    cg.check_target_and_cta_beats(beats, errors, warnings, strict=True)
+    assert errors == []
+
+
+def test_g10_empty_evidence_fails():
+    beats = [{"id": "opening", "narration": "a", "evidence": "  ", "conversion_role": "TARGET"}]
+    errors, warnings = [], []
+    cg.check_evidence_present(beats, errors, warnings, strict=True)
+    assert any("[근거누락]" in e and "opening" in e for e in errors)

@@ -143,3 +143,27 @@ def check_brand_signature(brand: str, beats: list[dict], errors: list, warnings:
               f"[말맛시그니처] '{brand}' 시그니처 마커 0개 사용 (요구 중 하나: {entry['markers'][:5]}) — "
               f"출처만 적고 말맛은 안 가져온 상태",
               errors, warnings)
+
+
+# ── G6/G7 TARGET·CTA 비트 ─────────────────────────────────
+def _roles(beat: dict) -> set[str]:
+    role = str(beat.get("conversion_role", ""))
+    return {tok.strip() for tok in role.replace("+", " ").replace(",", " ").split() if tok.strip()}
+
+
+def check_target_and_cta_beats(beats: list[dict], errors: list, warnings: list, *, strict: bool):
+    if not beats:
+        return
+    has_target = any("TARGET" in _roles(b) for b in beats)
+    has_cta = any("CTA" in _roles(b) or str(b.get("id", "")).lower() == "cta" for b in beats)
+    if not has_target:
+        _emit(strict, "[TARGET누락] conversion_role=TARGET 비트 0개 — 첫 줄에 누구 이야기인지 호명/상황이 있어야 함", errors, warnings)
+    if not has_cta:
+        _emit(strict, "[CTA누락] CTA 비트 0개 — id 'cta' 또는 conversion_role에 CTA 필요({CTA} 슬롯 가능)", errors, warnings)
+
+
+# ── G10 줄별 근거 ─────────────────────────────────────────
+def check_evidence_present(beats: list[dict], errors: list, warnings: list, *, strict: bool):
+    empty = [str(b.get("id", "?")) for b in beats or [] if not str(b.get("evidence", "")).strip()]
+    if empty:
+        _emit(strict, f"[근거누락] evidence 비어있는 비트: {', '.join(empty)} — rule 45(모든 줄에 근거)", errors, warnings)
