@@ -249,3 +249,29 @@ def check_cta_duplicates(beats: list[dict], warnings: list, *, video_root: str |
         if len(others) >= min_count:
             warnings.append(f"[CTA중복] 같은 CTA 문장이 다른 상품 {len(others)}곳에서 사용 — "
                             f"고정구 복제 의심. 예: {os.path.relpath(others[0], video_root or str(VIDEO_ROOT))}")
+
+
+# ── 진입점 ────────────────────────────────────────────────
+def run_consistency_gate(script: dict, *, script_path: str | None, errors: list, warnings: list,
+                         registry_path: str | None = None, video_root: str | None = None,
+                         index_path: str | None = None):
+    """validate_reels.validate()가 호출. strict=False면 신규 검사는 전부 WARN."""
+    if not script:
+        warnings.append("[일관성게이트] script.json 없음 — 게이트 건너뜀")
+        return
+    strict = uses_consistency_gate(script, script_path)
+    ctx = script.get("story_context") or {}
+    beats = script.get("beats") or []
+    ratio_max = float(((ctx.get("tone_gate") or {}).get("formal_ratio_max")) or FORMAL_RATIO_MAX_DEFAULT)
+
+    check_formal_tone(beats, errors, warnings, strict=strict, ratio_max=ratio_max)
+    check_sentence_length(beats, warnings)
+    check_tone_source(ctx, beats, errors, warnings, strict=strict)
+    brand = str(((ctx.get("script_tone_source") or {}).get("brand")) or "")
+    check_brand_signature(brand, beats, errors, warnings, strict=strict, registry_path=registry_path)
+    check_target_and_cta_beats(beats, errors, warnings, strict=strict)
+    check_cta_scarcity(ctx, beats, errors, warnings, strict=strict)
+    check_cta_duplicates(beats, warnings, video_root=video_root, index_path=index_path, current_path=script_path)
+    check_evidence_present(beats, errors, warnings, strict=strict)
+    if not strict:
+        warnings.append(f"[일관성게이트] {GATE_START} 이전 승인분 — 위 일관성 항목은 WARN으로만 표시")

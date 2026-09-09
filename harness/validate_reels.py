@@ -12,6 +12,7 @@ import re
 import sys
 from pathlib import Path
 from capcut_feature_gate import analyze_spec, write_report
+from consistency_gate import run_consistency_gate
 
 HARNESS_DIR = Path(__file__).absolute().parent
 VIDEO_ROOT = HARNESS_DIR.parent.parent / "video"
@@ -460,6 +461,9 @@ def validate(product: str) -> tuple[list, list]:
     check_conversion_brief(product_dir, errors, warnings)
     check_conversion_role(script, errors, warnings)
     check_story_context(script, errors, warnings)
+
+    print("── 일관성 게이트 ──")
+    run_consistency_gate(script, script_path=script_path or None, errors=errors, warnings=warnings)
 
     print("── 검증루프 ──")
     if product_info:

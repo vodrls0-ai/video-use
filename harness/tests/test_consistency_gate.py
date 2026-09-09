@@ -224,3 +224,36 @@ def test_g9_unique_cta_no_warning(tmp_path):
     cg.check_cta_duplicates([_cta_beat("아래 링크에서 확인해보세요")], warnings, video_root=str(tmp_path),
                             index_path=str(tmp_path / "_cta_index.json"), current_path=None)
     assert warnings == []
+
+
+# ── Task 7: run_consistency_gate 진입점 ────────────────────
+def _full_script(**over):
+    s = {
+        "story_context": _ctx(),
+        "beats": [
+            {"id": "n01", "narration": "허벅지 굵은 분들 데님 고를 때 핏이 애매하잖아요", "evidence": "타겟뱅크 체형", "conversion_role": "TARGET"},
+            {"id": "n02", "narration": "근데 이건 사이드턱이 잡아줘서 편한데도 안 무너져요", "evidence": "USP① 사이드턱", "conversion_role": "R↓"},
+            {"id": "n03", "narration": "심지어 밴딩이라 허리도 편해", "evidence": "USP② 밴딩", "conversion_role": "V↑"},
+            {"id": "cta", "narration": "{CTA}", "evidence": "공통 슬롯", "conversion_role": "CTA"},
+        ],
+        "script_approval": {"approved_at": "2026-09-10"},
+    }
+    s.update(over)
+    return s
+
+
+def test_run_gate_pass_on_good_script(tmp_path):
+    reg = _reg(tmp_path, {"바이도": {"markers": ["심지어"], "source": "x", "built_at": "d"}})
+    errors, warnings = [], []
+    cg.run_consistency_gate(_full_script(), script_path=None, errors=errors, warnings=warnings,
+                            registry_path=reg, video_root=str(tmp_path), index_path=str(tmp_path / "idx.json"))
+    assert errors == [], errors
+
+
+def test_run_gate_old_script_only_warns(tmp_path):
+    s = _full_script(script_approval={"approved_at": "2026-08-01"})
+    del s["story_context"]["script_tone_source"]
+    errors, warnings = [], []
+    cg.run_consistency_gate(s, script_path=None, errors=errors, warnings=warnings,
+                            registry_path=str(tmp_path / "none.json"), video_root=str(tmp_path), index_path=str(tmp_path / "idx.json"))
+    assert errors == [] and any("[말맛출처누락]" in w for w in warnings)
