@@ -167,3 +167,85 @@ def check_evidence_present(beats: list[dict], errors: list, warnings: list, *, s
     empty = [str(b.get("id", "?")) for b in beats or [] if not str(b.get("evidence", "")).strip()]
     if empty:
         _emit(strict, f"[근거누락] evidence 비어있는 비트: {', '.join(empty)} — rule 45(모든 줄에 근거)", errors, warnings)
+
+
+# ── G8 CTA 희소성 근거 ─────────────────────────────────────
+KOR_NUM = "[일이삼사오육칠팔구십백천]+"
+SCARCITY_RE = re.compile(
+    rf"선착순|당일발송|한정|마감|품절|딱\s*(\d+|{KOR_NUM})\s*일|(\d+|{KOR_NUM})\s*(명|분)(에게|한테)?"
+)
+CTA_SLOT = "{CTA}"
+
+
+def cta_beats(beats: list[dict]) -> list[dict]:
+    return [b for b in beats or [] if "CTA" in _roles(b) or str(b.get("id", "")).lower() == "cta"]
+
+
+def check_cta_scarcity(story_context: dict, beats: list[dict], errors: list, warnings: list, *, strict: bool):
+    promo = str(((story_context or {}).get("fact_locks") or {}).get("promo", "")).strip()
+    for b in cta_beats(beats):
+        text = (b.get("narration") or "").strip()
+        if not text or text == CTA_SLOT:
+            continue
+        m = SCARCITY_RE.search(text)
+        if m and not promo:
+            _emit(strict,
+                  f"[허위희소성] CTA '{text[:30]}…' 에 희소성 어휘 '{m.group(0)}' — "
+                  f"story_context.fact_locks.promo(실제 운영 근거) 없으면 사용 금지(CONVERSION_CARD §3 Line7)",
+                  errors, warnings)
+
+
+# ── G9 CTA 중복 ───────────────────────────────────────────
+def normalize_cta(text: str) -> str:
+    return re.sub(r"[\s\.,!?~…'\"\-]", "", text or "")
+
+
+def _build_cta_index(video_root: str, index_path: str) -> dict:
+    """{script_path: {"mtime": float, "cta": str}} — mtime 캐시. video/ 전수 스캔은 NAS에서 느리므로 재사용한다."""
+    index = {}
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, encoding="utf-8") as f:
+                index = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            index = {}
+    seen = set()
+    for root, dirs, files in os.walk(video_root):
+        dirs[:] = [d for d in dirs if d not in ("archive", "_tts_sample_khaki_series")]
+        if "script.json" not in files or os.path.basename(os.path.dirname(root)) != "reels":
+            continue
+        p = os.path.join(root, "script.json")
+        seen.add(p)
+        mtime = os.path.getmtime(p)
+        if p in index and abs(index[p].get("mtime", -1) - mtime) < 1e-6:
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+            ctas = [normalize_cta(b.get("narration", "")) for b in cta_beats(data.get("beats", []))]
+            index[p] = {"mtime": mtime, "cta": ctas[0] if ctas else ""}
+        except (json.JSONDecodeError, OSError):
+            index[p] = {"mtime": mtime, "cta": ""}
+    for p in list(index):
+        if p not in seen:
+            del index[p]
+    try:
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+    return index
+
+
+def check_cta_duplicates(beats: list[dict], warnings: list, *, video_root: str | None = None,
+                         index_path: str | None = None, current_path: str | None = None, min_count: int = 3):
+    mine = [normalize_cta(b.get("narration", "")) for b in cta_beats(beats)]
+    mine = [m for m in mine if m and m != normalize_cta(CTA_SLOT)]
+    if not mine:
+        return
+    index = _build_cta_index(video_root or str(VIDEO_ROOT), index_path or str(CTA_INDEX_PATH))
+    for cta in mine:
+        others = [p for p, v in index.items() if v.get("cta") == cta and p != current_path]
+        if len(others) >= min_count:
+            warnings.append(f"[CTA중복] 같은 CTA 문장이 다른 상품 {len(others)}곳에서 사용 — "
+                            f"고정구 복제 의심. 예: {os.path.relpath(others[0], video_root or str(VIDEO_ROOT))}")

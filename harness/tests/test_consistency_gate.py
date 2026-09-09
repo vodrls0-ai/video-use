@@ -165,3 +165,62 @@ def test_g10_empty_evidence_fails():
     errors, warnings = [], []
     cg.check_evidence_present(beats, errors, warnings, strict=True)
     assert any("[근거누락]" in e and "opening" in e for e in errors)
+
+
+# ── Task 6: G8 CTA 희소성 근거 / G9 CTA 중복 ─────────────
+def _cta_beat(text):
+    return {"id": "cta", "narration": text, "evidence": "e", "conversion_role": "CTA"}
+
+
+def test_g8_scarcity_without_factlock_fails():
+    errors, warnings = [], []
+    cg.check_cta_scarcity({}, [_cta_beat("딱 칠일간 선착순 백명한테만 당일발송으로 보내줄게")], errors, warnings, strict=True)
+    assert any("[허위희소성]" in e for e in errors)
+
+
+def test_g8_korean_numeral_scarcity_detected():
+    errors, warnings = [], []
+    cg.check_cta_scarcity({}, [_cta_beat("딱 칠일간 백분에게만 드려요")], errors, warnings, strict=True)
+    assert any("[허위희소성]" in e for e in errors)
+
+
+def test_g8_scarcity_with_factlock_passes():
+    ctx = {"fact_locks": {"promo": "2026-09-06 사용자 확인: 선착순 100명 당일발송 운영 중"}}
+    errors, warnings = [], []
+    cg.check_cta_scarcity(ctx, [_cta_beat("딱 칠일간 선착순 백명한테만 당일발송으로 보내줄게")], errors, warnings, strict=True)
+    assert errors == []
+
+
+def test_g8_slot_cta_passes():
+    errors, warnings = [], []
+    cg.check_cta_scarcity({}, [_cta_beat("{CTA}")], errors, warnings, strict=True)
+    assert errors == []
+
+
+def test_g8_plain_cta_passes():
+    errors, warnings = [], []
+    cg.check_cta_scarcity({}, [_cta_beat("아래 링크에서 확인해보세요")], errors, warnings, strict=True)
+    assert errors == []
+
+
+def test_g9_duplicate_cta_across_products_warns(tmp_path):
+    for i in range(3):
+        d = tmp_path / f"prod{i}" / "reels" / "v"
+        d.mkdir(parents=True)
+        (d / "script.json").write_text(json.dumps({"beats": [_cta_beat("딱 칠일간 선착순 백명한테만 당일발송으로 보내줄게")]},
+                                                  ensure_ascii=False), encoding="utf-8")
+    warnings = []
+    cg.check_cta_duplicates([_cta_beat("딱 칠일간, 선착순 백명한테만 당일발송으로 보내줄게!")],
+                            warnings, video_root=str(tmp_path), index_path=str(tmp_path / "_cta_index.json"),
+                            current_path=None)
+    assert any("[CTA중복]" in w and "3" in w for w in warnings)
+
+
+def test_g9_unique_cta_no_warning(tmp_path):
+    d = tmp_path / "prod0" / "reels" / "v"
+    d.mkdir(parents=True)
+    (d / "script.json").write_text(json.dumps({"beats": [_cta_beat("댓글에 기장 남겨줘")]}, ensure_ascii=False), encoding="utf-8")
+    warnings = []
+    cg.check_cta_duplicates([_cta_beat("아래 링크에서 확인해보세요")], warnings, video_root=str(tmp_path),
+                            index_path=str(tmp_path / "_cta_index.json"), current_path=None)
+    assert warnings == []
