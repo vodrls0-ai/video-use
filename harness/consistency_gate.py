@@ -257,6 +257,32 @@ def check_cta_duplicates(beats: list[dict], warnings: list, *, video_root: str |
                             f"고정구 복제 의심. 예: {os.path.relpath(others[0], video_root or str(VIDEO_ROOT))}")
 
 
+# ── G11 반박제거 구체성 (2026-09-10) ──────────────────────
+# build_conversion_brief.py가 모든 상품에 같은 buying_barrier 상수를 찍어내던 것이 "반박제거가 매번 같다"의 직접 원인.
+# 템플릿 문구가 story_context에 남아 있으면 신규분은 FAIL, 의심의 출처(고객언어)가 없으면 WARN.
+GENERIC_BARRIER_TOKENS = ("카테고리 편견", "가격 저항", "온라인 핏 불확실", "상품 관련 고민")
+BARRIER_MIN_CHARS = 8
+
+
+def check_buying_barrier_specific(story_context: dict, errors: list, warnings: list, *, strict: bool):
+    ctx = story_context or {}
+    barrier = str(ctx.get("buying_barrier") or "").strip()
+    if not barrier:
+        return  # 존재 자체는 validate_reels.check_story_context가 FAIL 처리한다
+    hits = [t for t in GENERIC_BARRIER_TOKENS if t in barrier]
+    if hits:
+        _emit(strict,
+              f"[반박제거템플릿] buying_barrier가 템플릿 문구({', '.join(hits)}) — "
+              f"이 상품에서 결제를 막는 의심을 고객 말(후기·문의·반품사유)로 구체화할 것",
+              errors, warnings)
+    elif len(barrier) < BARRIER_MIN_CHARS:
+        warnings.append(f"[반박제거빈약] buying_barrier '{barrier}' {BARRIER_MIN_CHARS}자 미만 — 라벨이 아니라 의심 문장이어야 함")
+    source = ctx.get("doubt_source") or (ctx.get("fact_locks") or {}).get("doubt_source")
+    if not source:
+        warnings.append("[의심출처없음] story_context.doubt_source 없음 — "
+                        "customer_language_*.json / 후기 / 문의 / 반품사유 중 무엇을 근거로 했는지 기재")
+
+
 # ── 진입점 ────────────────────────────────────────────────
 def run_consistency_gate(script: dict, *, script_path: str | None, errors: list, warnings: list,
                          registry_path: str | None = None, video_root: str | None = None,
@@ -279,5 +305,6 @@ def run_consistency_gate(script: dict, *, script_path: str | None, errors: list,
     check_cta_scarcity(ctx, beats, errors, warnings, strict=strict)
     check_cta_duplicates(beats, warnings, video_root=video_root, index_path=index_path, current_path=script_path)
     check_evidence_present(beats, errors, warnings, strict=strict)
+    check_buying_barrier_specific(ctx, errors, warnings, strict=strict)
     if not strict:
         warnings.append(f"[일관성게이트] {GATE_START} 이전 승인분 — 위 일관성 항목은 WARN으로만 표시")

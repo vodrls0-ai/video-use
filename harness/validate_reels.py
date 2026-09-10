@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from capcut_feature_gate import analyze_spec, write_report
 from consistency_gate import run_consistency_gate
+from angle_gate import run_angle_gate
 
 HARNESS_DIR = Path(__file__).absolute().parent
 VIDEO_ROOT = HARNESS_DIR.parent.parent / "video"
@@ -464,6 +465,9 @@ def validate(product: str) -> tuple[list, list]:
 
     print("── 일관성 게이트 ──")
     run_consistency_gate(script, script_path=script_path or None, errors=errors, warnings=warnings)
+
+    print("── 앵글 다양성 게이트 ──")
+    run_angle_gate(script, script_path=script_path or None, errors=errors, warnings=warnings)
 
     print("── 검증루프 ──")
     if product_info:
