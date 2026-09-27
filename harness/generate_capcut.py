@@ -479,7 +479,10 @@ def align_chunks_to_words(chunks: list, words: list, total_dur: float):
     # 자막이 나레이션보다 잘게 쪼개져 있으면(청크 2개가 전사 단어 1개에 매핑) 경계가 한 점으로
     # 몰려 길이 0짜리가 생긴다. 예전에는 이때 전체를 폴백시켰는데, 매칭률 90%대인 정렬까지
     # 통째로 버려졌다(제이엠엘 4개 변형). 이제 그 자막만 최소 길이로 밀어서 살린다.
-    MIN = 0.15
+    # 2026-09-23: 0.15(4.5프레임)은 "길이 0 방지"용이라 읽히지는 않았다. 6자 상한 때문에
+    # "오래"/"신경"/"?" 같은 2글자 청크는 병합이 불가능한데, 발화시간(0.17s)만큼만 떠서
+    # 깜빡이고 지나갔다(사용자 반려). 읽을 수 있는 하한으로 올린다.
+    MIN = min(0.35, total_dur / max(1, len(spans)))
     n = len(spans)
     for i in range(n):                       # 앞 → 뒤
         if spans[i][1] - spans[i][0] < MIN:
@@ -963,7 +966,18 @@ def generate(product: str, spec: dict, force_overwrite: bool = False, tts_only: 
     draft_name = draft_name_for(product, spec)
     print(f"=== CapCut 생성: {draft_name} ({len(clips)}컷 / {fps}fps) ===")
 
-    tmp_dir   = tempfile.mkdtemp(prefix=f"capcut_{product.replace('/', '_')[:8]}_")
+    # 드래프트가 이 mp4들을 경로로 참조한다. %TEMP%에 두면 정리될 때 소재가 통째로 사라진다
+    # (2026-09-27 위너 7008 3개 드래프트 에셋 누락 14~45건). 드래프트 폴더 밖 고정 위치에 둔다.
+    existing = os.path.join(CAPCUT_DIR, draft_name)
+    if os.path.exists(existing) and not force_overwrite:
+        print("=" * 60)
+        print(f"  [BLOCKED] 기존 드래프트 존재: {draft_name}")
+        print("  기존 편집이 날아갑니다. --force-overwrite 로 재실행하세요.")
+        print("=" * 60)
+        sys.exit(1)
+    tmp_dir = os.path.join(os.path.dirname(CAPCUT_DIR), "_nomal_media", draft_name)
+    shutil.rmtree(tmp_dir, ignore_errors=True)  # CapCut이 열어 잠근 파일은 남는다 → 아래 ffmpeg -y가 덮거나 실패로 드러남
+    os.makedirs(tmp_dir, exist_ok=True)
     mp4_paths = []
     if tts_only:
         print("\n[1/3] TTS-only mode - skip image/video conversion (placeholder)")
@@ -994,14 +1008,7 @@ def generate(product: str, spec: dict, force_overwrite: bool = False, tts_only: 
             print(f"  [{clip['section']}] {clip['duration']}s {crop_label}")
 
     print("\n[2/3] CapCut 프로젝트 생성")
-    existing = os.path.join(CAPCUT_DIR, draft_name)
     if os.path.exists(existing):
-        if not force_overwrite:
-            print("=" * 60)
-            print(f"  [BLOCKED] 기존 드래프트 존재: {draft_name}")
-            print("  기존 편집이 날아갑니다. --force-overwrite 로 재실행하세요.")
-            print("=" * 60)
-            sys.exit(1)
         shutil.rmtree(existing)
 
     folder = cc.DraftFolder(CAPCUT_DIR)
