@@ -354,6 +354,9 @@ def _get_whisper_model(size: str = "medium"):
 def _verify_transcript(expected_text: str, transcript: str, sim_threshold: float = 0.7) -> tuple[bool, float, str]:
     """전체 유사도 + 마지막 어절 인식 여부를 함께 확인 (7/21: 유사도만 보면 끝 단어 누락을 놓침)."""
     import difflib
+    # Whisper는 "예요"를 "에요", "고요"를 "구요"로 적는다 — 같은 발음이라 양쪽을 같은 표기로 맞춘다
+    spell = lambda t: t.replace("예요", "에요").replace("구요", "고요")
+    expected_text, transcript = spell(expected_text), spell(transcript)
     expected_clean = expected_text.replace(" ", "")
     clean = transcript.replace(" ", "")
     sim = difflib.SequenceMatcher(None, expected_clean, clean).ratio()
