@@ -357,9 +357,11 @@ def _verify_transcript(expected_text: str, transcript: str, sim_threshold: float
     expected_clean = expected_text.replace(" ", "")
     clean = transcript.replace(" ", "")
     sim = difflib.SequenceMatcher(None, expected_clean, clean).ratio()
-    words = expected_text.split()
+    # 문장부호를 떼지 않으면 "돼."처럼 짧은 끝어절은 core가 "돼." 그대로라 정확한 발음도 항상 FAIL.
+    # 부호만 있는 토큰("좋아요 !"의 "!")은 건너뛰고 실제 글자가 있는 마지막 어절을 쓴다
+    words = [w for w in (t.strip(".,!?~…\"'") for t in expected_text.split()) if w]
     last_word = words[-1] if words else ""
-    last_word_clean = last_word.replace(" ", "")
+    last_word_clean = last_word
     core = last_word_clean[:max(2, len(last_word_clean) - 1)]
     last_ok = (core in clean) if core else True
     ok = sim >= sim_threshold and last_ok
